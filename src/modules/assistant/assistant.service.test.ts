@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest";
 
 import { createAssistantService } from "./assistant.service";
 import type { KnowledgeRetriever } from "../knowledge/retriever.types";
+import type { IntentAnalyzer } from "../intents/intent-analyzer";
 
 describe("createAssistantService", () => {
   it("returns a structured reply when the retriever finds a knowledge hit", async () => {
@@ -38,5 +39,26 @@ describe("createAssistantService", () => {
     const reply = await assistant.reply("午饭吃什么");
 
     expect(reply).toContain("请联系");
+  });
+
+  it("obeys analyzer output contract for smalltalk without hitting retriever", async () => {
+    const retriever: KnowledgeRetriever = {
+      async search() {
+        throw new Error("retriever should not be called for smalltalk");
+      }
+    };
+    const analyzer: IntentAnalyzer = {
+      async analyze() {
+        return {
+          intent: "smalltalk",
+          source: "rule"
+        };
+      }
+    };
+
+    const assistant = createAssistantService({ retriever, analyzer });
+    const reply = await assistant.reply("你好");
+
+    expect(reply).toContain("你好");
   });
 });
