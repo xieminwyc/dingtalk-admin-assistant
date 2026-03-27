@@ -1,21 +1,15 @@
 import type { HandoffDecision } from "../handoff/handoff.service";
 import type { KnowledgeHit } from "../knowledge/retriever.types";
-import type {
-  AssistantResolution,
-  AssistantTaskResolution,
-  AssistantKnowledgeResolution,
-  AssistantClarificationResolution,
-  AssistantHandoffResolution,
-  AssistantSmalltalkResolution
-} from "./assistant.types";
+import type { AssistantResolution } from "./assistant.types";
 
+// 兼容旧版检索结果输入，方便 service 过渡期继续复用。
 type LegacyAssistantReplyInput = {
   hit?: KnowledgeHit;
   handoff: HandoffDecision;
 };
 
 function formatKnowledgeReply(input: {
-  title: string;
+  title?: string;
   answer: string;
   scope?: string;
 }) {
@@ -52,29 +46,28 @@ function formatClarificationReply(input: {
     .join("\n");
 }
 
-export function buildAssistantReply(
-  input: AssistantResolution | LegacyAssistantReplyInput
-) {
-  if ("kind" in input) {
-    if (input.kind === "knowledge") {
-      return formatKnowledgeReply(input as AssistantKnowledgeResolution);
-    }
+function assertNever(value: never): never {
+  throw new Error(`Unhandled assistant resolution kind: ${String(value)}`);
+}
 
-    if (input.kind === "task") {
-      return formatTaskReply(input as AssistantTaskResolution);
-    }
-
-    if (input.kind === "clarification") {
-      return formatClarificationReply(input as AssistantClarificationResolution);
-    }
-
-    if (input.kind === "handoff") {
-      return (input as AssistantHandoffResolution).reason;
-    }
-
-    return (input as AssistantSmalltalkResolution).reply;
+function buildReplyFromResolution(input: AssistantResolution) {
+  switch (input.kind) {
+    case "knowledge":
+      return formatKnowledgeReply(input);
+    case "task":
+      return formatTaskReply(input);
+    case "clarification":
+      return formatClarificationReply(input);
+    case "handoff":
+      return input.reason;
+    case "smalltalk":
+      return input.reply;
+    default:
+      return assertNever(input);
   }
+}
 
+function buildReplyFromLegacyInput(input: LegacyAssistantReplyInput) {
   // 只要没有稳定命中，就统一走保守回复，避免模型式“猜答案”。
   if (!input.hit || input.handoff.required) {
     return input.handoff.reason ?? "当前需要人工处理，请联系行政同学。";
@@ -82,4 +75,16 @@ export function buildAssistantReply(
 
   // 先输出成纯文本结构，便于当前页面展示，也方便后续映射成钉钉卡片。
   return formatKnowledgeReply(input.hit);
+}
+
+export function buildAssistantReply(input: AssistantResolution): string;
+export function buildAssistantReply(input: LegacyAssistantReplyInput): string;
+export function buildAssistantReply(
+  input: AssistantResolution | LegacyAssistantReplyInput
+) {
+  if ("kind" in input) {
+    return buildReplyFromResolution(input);
+  }
+
+  return buildReplyFromLegacyInput(input);
 }

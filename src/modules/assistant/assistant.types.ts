@@ -1,9 +1,17 @@
-import type { IntentType } from "../intents/intent.types";
 import type { HandoffDecision } from "../handoff/handoff.service";
+
+type AssistantIntentByKind = {
+  knowledge: "knowledge_query";
+  task: "task_request";
+  handoff: "handoff_request";
+  clarification: "unknown";
+  smalltalk: "smalltalk";
+};
 
 export type AssistantKnowledgeResolution = {
   kind: "knowledge";
-  intent: IntentType;
+  intent: AssistantIntentByKind["knowledge"];
+  // title 先留给后续卡片头部或标题区渲染，这里暂不直接拼进纯文本。
   title: string;
   answer: string;
   scope?: string;
@@ -11,7 +19,8 @@ export type AssistantKnowledgeResolution = {
 
 export type AssistantTaskResolution = {
   kind: "task";
-  intent: IntentType;
+  intent: AssistantIntentByKind["task"];
+  // title 先留给后续卡片头部或标题区渲染，这里暂不直接拼进纯文本。
   title: string;
   entry: string;
   guidance?: string;
@@ -19,13 +28,13 @@ export type AssistantTaskResolution = {
 
 export type AssistantHandoffResolution = {
   kind: "handoff";
-  intent: IntentType;
+  intent: AssistantIntentByKind["handoff"];
   reason: string;
 };
 
 export type AssistantClarificationResolution = {
   kind: "clarification";
-  intent: IntentType;
+  intent: AssistantIntentByKind["clarification"];
   prompt: string;
   reason?: string;
   handoff?: HandoffDecision;
@@ -33,7 +42,7 @@ export type AssistantClarificationResolution = {
 
 export type AssistantSmalltalkResolution = {
   kind: "smalltalk";
-  intent: IntentType;
+  intent: AssistantIntentByKind["smalltalk"];
   reply: string;
 };
 
