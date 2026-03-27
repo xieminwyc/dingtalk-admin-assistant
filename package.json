@@ -1,0 +1,35 @@
+{
+  "name": "dingtalk-admin-assistant",
+  "version": "0.1.0",
+  "private": true,
+  "scripts": {
+    "dev": "next dev",
+    "build": "next build",
+    "start": "next start",
+    "stream:dev": "tsx watch --clear-screen=false --include 'src/**/*.ts' --include 'src/**/*.tsx' --tsconfig tsconfig.json src/scripts/start-dingtalk-stream.ts",
+    "lint": "eslint .",
+    "test": "vitest run"
+  },
+  "dependencies": {
+    "@prisma/client": "^7.5.0",
+    "dingtalk-stream": "^2.1.6-beta.1",
+    "dotenv": "^17.2.3",
+    "next": "16.2.1",
+    "prisma": "^7.5.0",
+    "react": "19.2.4",
+    "react-dom": "19.2.4",
+    "tsx": "^4.21.0",
+    "zod": "^4.1.11"
+  },
+  "devDependencies": {
+    "@testing-library/jest-dom": "^6.9.1",
+    "@testing-library/react": "^16.3.2",
+    "@testing-library/user-event": "^14.6.1",
+    "@types/node": "^20.19.18",
+    "@types/react": "^19.2.2",
+    "@types/react-dom": "^19.2.2",
+    "jsdom": "^27.0.0",
+    "typescript": "^5.9.3",
+    "vitest": "^4.1.1"
+  }
+}
