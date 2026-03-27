@@ -33,7 +33,7 @@ export class KnowledgeCardRetriever implements KnowledgeRetriever {
       );
     });
 
-    const hits = matches.map((card) => {
+    const hits: KnowledgeHit[] = matches.map((card): KnowledgeHit => {
       const titleMatched = normalizeText(card.title) === normalizedQuery;
 
       return {
