@@ -12,17 +12,19 @@ const appEnvSchema = z.object({
     z.string().url().optional()
   ),
   SILICONFLOW_API_KEY: z
-    .string()
-    .min(1, "SILICONFLOW_API_KEY is required")
-    .optional(),
+    .preprocess(
+      (value) => (value === "" ? undefined : value),
+      z.string().min(1, "SILICONFLOW_API_KEY is required").optional()
+    ),
   SILICONFLOW_BASE_URL: z.preprocess(
     (value) => (value === "" ? undefined : value),
     z.string().url().optional()
   ),
   SILICONFLOW_MODEL: z
-    .string()
-    .min(1, "SILICONFLOW_MODEL is required")
-    .optional(),
+    .preprocess(
+      (value) => (value === "" ? undefined : value),
+      z.string().min(1, "SILICONFLOW_MODEL is required").optional()
+    ),
 });
 
 export type AppEnv = {

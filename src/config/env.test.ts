@@ -51,6 +51,18 @@ describe("parseAppEnv", () => {
     expect(env.siliconflowModel).toBeUndefined();
   });
 
+  it("treats empty SiliconFlow API key and model values as not configured", () => {
+    const env = parseAppEnv({
+      DINGTALK_CLIENT_ID: "client-id",
+      DINGTALK_CLIENT_SECRET: "client-secret",
+      SILICONFLOW_API_KEY: "",
+      SILICONFLOW_MODEL: ""
+    });
+
+    expect(env.siliconflowApiKey).toBeUndefined();
+    expect(env.siliconflowModel).toBeUndefined();
+  });
+
   it("treats an empty RAG_API_URL as not configured", () => {
     const env = parseAppEnv({
       DINGTALK_CLIENT_ID: "client-id",
