@@ -60,4 +60,31 @@ describe("createModelIntentClassifier", () => {
 
     await expect(classifier.classify("这个怎么办")).resolves.toBe("unknown");
   });
+
+  it("returns unknown when fetch rejects", async () => {
+    const classifier = createModelIntentClassifier({
+      apiKey: "test-key",
+      baseUrl: "https://api.siliconflow.cn/v1",
+      model: "Qwen/Qwen3-8B",
+      fetch: vi.fn().mockRejectedValue(new Error("network down"))
+    });
+
+    await expect(classifier.classify("这个怎么办")).resolves.toBe("unknown");
+  });
+
+  it("returns unknown when response json parsing throws", async () => {
+    const classifier = createModelIntentClassifier({
+      apiKey: "test-key",
+      baseUrl: "https://api.siliconflow.cn/v1",
+      model: "Qwen/Qwen3-8B",
+      fetch: vi.fn().mockResolvedValue({
+        ok: true,
+        json: async () => {
+          throw new Error("bad json");
+        }
+      })
+    });
+
+    await expect(classifier.classify("这个怎么办")).resolves.toBe("unknown");
+  });
 });

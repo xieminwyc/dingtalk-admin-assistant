@@ -45,45 +45,52 @@ export function createModelIntentClassifier(
 
   return {
     async classify(query: string) {
-      const response = await requestFetch(`${baseUrl}/chat/completions`, {
-        method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-          Authorization: `Bearer ${input.apiKey}`
-        },
-        body: JSON.stringify({
-          model: input.model,
-          temperature: 0,
-          response_format: {
-            type: "json_object"
+      try {
+        const response = await requestFetch(`${baseUrl}/chat/completions`, {
+          method: "POST",
+          headers: {
+            "Content-Type": "application/json",
+            Authorization: `Bearer ${input.apiKey}`
           },
-          messages: [
-            {
-              role: "system",
-              content:
-                '你是企业行政助手的意图分类器。只能输出 JSON，例如 {"intent":"knowledge_query"}。'
+          body: JSON.stringify({
+            model: input.model,
+            temperature: 0,
+            response_format: {
+              type: "json_object"
             },
-            {
-              role: "user",
-              content: `请只判断这句话的意图：${query}`
-            }
-          ]
-        })
-      });
+            messages: [
+              {
+                role: "system",
+                content:
+                  '你是企业行政助手的意图分类器。只能输出 JSON，例如 {"intent":"knowledge_query"}。'
+              },
+              {
+                role: "user",
+                content: `请只判断这句话的意图：${query}`
+              }
+            ]
+          })
+        });
 
-      if (!response.ok) {
+        if (!response.ok) {
+          return "unknown";
+        }
+
+        const payload = (await response.json()) as {
+          choices?: Array<{
+            message?: {
+              content?: string;
+            };
+          }>;
+        };
+
+        return extractIntentFromContent(
+          payload.choices?.[0]?.message?.content ?? ""
+        );
+      } catch {
+        // 模型调用属于兜底能力，异常时不能反向打断用户请求。
         return "unknown";
       }
-
-      const payload = (await response.json()) as {
-        choices?: Array<{
-          message?: {
-            content?: string;
-          };
-        }>;
-      };
-
-      return extractIntentFromContent(payload.choices?.[0]?.message?.content ?? "");
     }
   };
 }

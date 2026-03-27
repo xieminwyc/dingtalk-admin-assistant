@@ -1,4 +1,4 @@
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 
 import { createAssistantService } from "./assistant.service";
 import type { KnowledgeRetriever } from "../knowledge/retriever.types";
@@ -60,5 +60,117 @@ describe("createAssistantService", () => {
     const reply = await assistant.reply("你好");
 
     expect(reply).toContain("你好");
+  });
+
+  it("obeys analyzer output contract for handoff requests", async () => {
+    const retriever: KnowledgeRetriever = {
+      async search() {
+        throw new Error("retriever should not be called for handoff");
+      }
+    };
+    const analyzer: IntentAnalyzer = {
+      async analyze() {
+        return {
+          intent: "handoff_request",
+          source: "rule"
+        };
+      }
+    };
+
+    const assistant = createAssistantService({ retriever, analyzer });
+    const reply = await assistant.reply("帮我找行政");
+
+    expect(reply).toContain("联系行政同学");
+  });
+
+  it("obeys analyzer output contract for task requests", async () => {
+    const retriever: KnowledgeRetriever = {
+      async search() {
+        throw new Error("retriever should not be called for task");
+      }
+    };
+    const analyzer: IntentAnalyzer = {
+      async analyze() {
+        return {
+          intent: "task_request",
+          source: "rule"
+        };
+      }
+    };
+
+    const assistant = createAssistantService({ retriever, analyzer });
+    const reply = await assistant.reply("我要请假");
+
+    expect(reply).toContain("事务入口");
+    expect(reply).toContain("联系行政同学");
+  });
+
+  it("obeys analyzer output contract for unknown requests", async () => {
+    const retriever: KnowledgeRetriever = {
+      async search() {
+        throw new Error("retriever should not be called for unknown");
+      }
+    };
+    const analyzer: IntentAnalyzer = {
+      async analyze() {
+        return {
+          intent: "unknown",
+          source: "none"
+        };
+      }
+    };
+
+    const assistant = createAssistantService({ retriever, analyzer });
+    const reply = await assistant.reply("这个呢");
+
+    expect(reply).toContain("请再具体描述一下问题");
+  });
+
+  it("uses retriever when model fallback returns knowledge_query", async () => {
+    const search = vi.fn().mockResolvedValue([
+      {
+        id: "faq-2",
+        question: "年假规则是什么",
+        answer: "年假按司龄计算。",
+        scope: "适用于正式员工",
+        score: 0.91,
+        source: "faq"
+      }
+    ]);
+    const retriever: KnowledgeRetriever = {
+      search
+    };
+    const analyzer: IntentAnalyzer = {
+      async analyze() {
+        return {
+          intent: "knowledge_query",
+          source: "model"
+        };
+      }
+    };
+
+    const assistant = createAssistantService({ retriever, analyzer });
+    const reply = await assistant.reply("这个怎么办");
+
+    expect(search).toHaveBeenCalledWith("这个怎么办");
+    expect(reply).toContain("年假按司龄计算");
+  });
+
+  it("degrades conservatively when analyzer throws", async () => {
+    const retriever: KnowledgeRetriever = {
+      async search() {
+        throw new Error("retriever should not be called after analyzer failure");
+      }
+    };
+    const analyzer: IntentAnalyzer = {
+      async analyze() {
+        throw new Error("classifier crashed");
+      }
+    };
+
+    const assistant = createAssistantService({ retriever, analyzer });
+    const reply = await assistant.reply("这个怎么办");
+
+    expect(reply).toContain("请再具体描述一下问题");
   });
 });

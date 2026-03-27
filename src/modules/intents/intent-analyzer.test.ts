@@ -32,7 +32,7 @@ describe("createIntentAnalyzer", () => {
     const result = await analyzer.analyze("这个呢");
 
     expect(result.intent).toBe("unknown");
-    expect(result.source).toBe("rule");
+    expect(result.source).toBe("none");
   });
 
   it("falls back to model classification for ambiguous input", async () => {
@@ -46,6 +46,21 @@ describe("createIntentAnalyzer", () => {
     expect(modelClassifier.classify).toHaveBeenCalledWith("这个怎么办");
     expect(result).toEqual({
       intent: "knowledge_query",
+      source: "model"
+    });
+  });
+
+  it("returns unknown when model fallback throws", async () => {
+    const analyzer = createIntentAnalyzer({
+      modelClassifier: {
+        classify: vi.fn().mockRejectedValue(new Error("model failed"))
+      }
+    });
+
+    const result = await analyzer.analyze("这个怎么办");
+
+    expect(result).toEqual({
+      intent: "unknown",
       source: "model"
     });
   });

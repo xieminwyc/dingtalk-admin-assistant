@@ -3,7 +3,7 @@ import type { ModelIntentClassifier } from "./model-intent-classifier";
 
 export type IntentAnalysis = {
   intent: IntentType;
-  source: "rule" | "model";
+  source: "rule" | "model" | "none";
 };
 
 export type IntentAnalyzer = {
@@ -74,14 +74,22 @@ export function createIntentAnalyzer(
       if (!input.modelClassifier) {
         return {
           intent: "unknown",
-          source: "rule"
+          source: "none"
         };
       }
 
-      return {
-        intent: await input.modelClassifier.classify(query),
-        source: "model"
-      };
+      try {
+        return {
+          intent: await input.modelClassifier.classify(query),
+          source: "model"
+        };
+      } catch {
+        // 模型兜底不可用时，仍然给出保守分类结果。
+        return {
+          intent: "unknown",
+          source: "model"
+        };
+      }
     }
   };
 }
