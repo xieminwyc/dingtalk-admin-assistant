@@ -15,8 +15,8 @@ describe("KnowledgeCardRetriever", () => {
     expect(hits[0]?.answer).toContain("司龄");
   });
 
-  it("returns a hit for a keyword match", async () => {
-    const hits = await retriever.search("会议室怎么预订");
+  it("returns a hit for an exact keyword match", async () => {
+    const hits = await retriever.search("预订");
 
     expect(hits).toHaveLength(1);
     expect(hits[0]?.title).toBe("会议室预订");
@@ -32,6 +32,12 @@ describe("KnowledgeCardRetriever", () => {
   });
 
   it("returns no hits when nothing matches", async () => {
+    const hits = await retriever.search("会议室怎么预订");
+
+    expect(hits).toEqual([]);
+  });
+
+  it("returns no hits for unrelated queries", async () => {
     const hits = await retriever.search("下午茶报销规则");
 
     expect(hits).toEqual([]);

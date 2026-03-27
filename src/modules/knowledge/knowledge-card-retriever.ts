@@ -9,10 +9,6 @@ function normalizeText(text: string) {
   return text.trim().replace(/\s+/g, "").toLowerCase();
 }
 
-function includesNormalizedText(source: string, query: string) {
-  return normalizeText(source).includes(normalizeText(query));
-}
-
 export class KnowledgeCardRetriever implements KnowledgeRetriever {
   constructor(private readonly cards: KnowledgeCard[]) {}
 
@@ -32,10 +28,8 @@ export class KnowledgeCardRetriever implements KnowledgeRetriever {
       }
 
       return card.keywords.some(
-        // 关键词允许“会议室怎么预订”这类包含式命中，先满足一期可控召回。
-        (keyword) =>
-          includesNormalizedText(keyword, query) ||
-          includesNormalizedText(query, keyword)
+        // 一期知识卡片只接受标题/关键词精确命中，避免把模糊问法误判成稳定答案。
+        (keyword) => normalizeText(keyword) === normalizedQuery
       );
     });
 
