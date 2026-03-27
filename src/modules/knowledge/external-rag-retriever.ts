@@ -1,3 +1,4 @@
+import { normalizeKnowledgeDepartment } from "./knowledge-card.types";
 import type {
   KnowledgeHit,
   KnowledgeRetriever,
@@ -32,17 +33,23 @@ export class ExternalRagRetriever implements KnowledgeRetriever {
       department: options?.department
     });
 
-    return documents.map((document) => ({
-      id: document.id,
-      title: document.title,
-      question: document.title,
-      answer: document.content,
-      content: document.content,
-      scope: document.department,
-      department: document.department,
-      score: document.score ?? 0.8,
-      source: "rag",
-      url: document.url
-    }));
+    return documents.map((document) => {
+      const normalizedDepartment = normalizeKnowledgeDepartment(
+        document.department
+      );
+
+      return {
+        id: document.id,
+        title: document.title,
+        question: document.title,
+        answer: document.content,
+        content: document.content,
+        scope: normalizedDepartment,
+        department: normalizedDepartment,
+        score: document.score ?? 0.8,
+        source: "rag",
+        url: document.url
+      };
+    });
   }
 }

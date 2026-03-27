@@ -42,6 +42,54 @@ describe("ExternalRagRetriever", () => {
     ]);
   });
 
+  it("normalizes known provider department aliases into canonical departments", async () => {
+    const provider = {
+      search: vi.fn().mockResolvedValue([
+        {
+          id: "rag-2",
+          title: "权限申请说明",
+          content: "由 it 服务台处理。",
+          department: "it"
+        }
+      ])
+    };
+    const retriever = new ExternalRagRetriever(provider);
+
+    const hits = await retriever.search("权限申请说明");
+
+    expect(hits).toEqual([
+      expect.objectContaining({
+        id: "rag-2",
+        department: "IT",
+        scope: "IT"
+      })
+    ]);
+  });
+
+  it("drops unknown provider departments instead of passing arbitrary strings through", async () => {
+    const provider = {
+      search: vi.fn().mockResolvedValue([
+        {
+          id: "rag-3",
+          title: "供应商流程",
+          content: "由采购流程处理。",
+          department: "采购"
+        }
+      ])
+    };
+    const retriever = new ExternalRagRetriever(provider);
+
+    const hits = await retriever.search("供应商流程");
+
+    expect(hits).toEqual([
+      expect.objectContaining({
+        id: "rag-3",
+        department: undefined,
+        scope: undefined
+      })
+    ]);
+  });
+
   it("surfaces provider failures instead of faking a successful result", async () => {
     const provider = {
       search: vi.fn().mockRejectedValue(new Error("provider unavailable"))

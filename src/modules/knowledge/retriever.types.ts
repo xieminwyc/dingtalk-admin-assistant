@@ -9,7 +9,7 @@ export type KnowledgeHit = {
   title?: string;
   content?: string;
   scope?: string;
-  department?: string;
+  department?: KnowledgeDepartment;
   score: number;
   source: "faq" | "knowledge_card" | "rag";
   url?: string;
