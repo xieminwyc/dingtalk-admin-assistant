@@ -3,10 +3,26 @@ import { describe, expect, it, vi } from "vitest";
 import { createAssistantService } from "./assistant.service";
 import type { KnowledgeRetriever } from "../knowledge/retriever.types";
 import type { IntentAnalyzer } from "../intents/intent-analyzer";
+import type { TaskCatalogResolution } from "../tasks/task-catalog.types";
+
+function createTaskCatalog() {
+  const resolution: TaskCatalogResolution = {
+    taskType: "leave_application",
+    title: "请假申请",
+    description: "用于发起请假审批，适合年假、病假、事假等场景。",
+    preparations: ["确认请假日期", "准备请假类型", "提前和直属主管沟通"],
+    entryUrl: "https://oa.example.com/tasks/leave-application",
+    fallbackContact: "HR 同学"
+  };
+
+  return {
+    resolve: vi.fn().mockReturnValue(resolution)
+  };
+}
 
 describe("createAssistantService", () => {
   it("returns a structured reply when the retriever finds a knowledge hit", async () => {
-    const retriever: KnowledgeRetriever = {
+    const localRetriever: KnowledgeRetriever = {
       async search() {
         return [
           {
@@ -21,7 +37,10 @@ describe("createAssistantService", () => {
       }
     };
 
-    const assistant = createAssistantService({ retriever });
+    const assistant = createAssistantService({
+      localRetriever,
+      taskCatalog: createTaskCatalog()
+    });
     const reply = await assistant.reply("补卡流程是什么");
 
     expect(reply).toContain("补卡申请");
@@ -29,20 +48,23 @@ describe("createAssistantService", () => {
   });
 
   it("returns a handoff message when no knowledge is found", async () => {
-    const retriever: KnowledgeRetriever = {
+    const localRetriever: KnowledgeRetriever = {
       async search() {
         return [];
       }
     };
 
-    const assistant = createAssistantService({ retriever });
+    const assistant = createAssistantService({
+      localRetriever,
+      taskCatalog: createTaskCatalog()
+    });
     const reply = await assistant.reply("午饭吃什么");
 
     expect(reply).toContain("请联系");
   });
 
   it("obeys analyzer output contract for smalltalk without hitting retriever", async () => {
-    const retriever: KnowledgeRetriever = {
+    const localRetriever: KnowledgeRetriever = {
       async search() {
         throw new Error("retriever should not be called for smalltalk");
       }
@@ -56,14 +78,18 @@ describe("createAssistantService", () => {
       }
     };
 
-    const assistant = createAssistantService({ retriever, analyzer });
+    const assistant = createAssistantService({
+      localRetriever,
+      analyzer,
+      taskCatalog: createTaskCatalog()
+    });
     const reply = await assistant.reply("你好");
 
     expect(reply).toContain("你好");
   });
 
   it("obeys analyzer output contract for handoff requests", async () => {
-    const retriever: KnowledgeRetriever = {
+    const localRetriever: KnowledgeRetriever = {
       async search() {
         throw new Error("retriever should not be called for handoff");
       }
@@ -77,14 +103,18 @@ describe("createAssistantService", () => {
       }
     };
 
-    const assistant = createAssistantService({ retriever, analyzer });
+    const assistant = createAssistantService({
+      localRetriever,
+      analyzer,
+      taskCatalog: createTaskCatalog()
+    });
     const reply = await assistant.reply("帮我找行政");
 
     expect(reply).toContain("联系行政同学");
   });
 
   it("obeys analyzer output contract for task requests", async () => {
-    const retriever: KnowledgeRetriever = {
+    const localRetriever: KnowledgeRetriever = {
       async search() {
         throw new Error("retriever should not be called for task");
       }
@@ -98,15 +128,19 @@ describe("createAssistantService", () => {
       }
     };
 
-    const assistant = createAssistantService({ retriever, analyzer });
+    const assistant = createAssistantService({
+      localRetriever,
+      analyzer,
+      taskCatalog: createTaskCatalog()
+    });
     const reply = await assistant.reply("我要请假");
 
     expect(reply).toContain("事务入口");
-    expect(reply).toContain("联系行政同学");
+    expect(reply).toContain("https://oa.example.com/tasks/leave-application");
   });
 
   it("obeys analyzer output contract for unknown requests", async () => {
-    const retriever: KnowledgeRetriever = {
+    const localRetriever: KnowledgeRetriever = {
       async search() {
         throw new Error("retriever should not be called for unknown");
       }
@@ -120,25 +154,42 @@ describe("createAssistantService", () => {
       }
     };
 
-    const assistant = createAssistantService({ retriever, analyzer });
+    const assistant = createAssistantService({
+      localRetriever,
+      analyzer,
+      taskCatalog: createTaskCatalog()
+    });
     const reply = await assistant.reply("这个呢");
 
     expect(reply).toContain("请再具体描述一下问题");
   });
 
-  it("uses retriever when model fallback returns knowledge_query", async () => {
-    const search = vi.fn().mockResolvedValue([
+  it("uses external provider first for knowledge_query when enabled", async () => {
+    const localSearch = vi.fn().mockResolvedValue([
       {
-        id: "faq-2",
+        id: "local-1",
         question: "年假规则是什么",
-        answer: "年假按司龄计算。",
+        answer: "本地规则答案",
         scope: "适用于正式员工",
         score: 0.91,
-        source: "faq"
+        source: "knowledge_card"
       }
     ]);
-    const retriever: KnowledgeRetriever = {
-      search
+    const externalSearch = vi.fn().mockResolvedValue([
+      {
+        id: "rag-1",
+        question: "年假规则是什么",
+        answer: "外部知识库答案",
+        scope: "适用于正式员工",
+        score: 0.96,
+        source: "rag"
+      }
+    ]);
+    const localRetriever: KnowledgeRetriever = {
+      search: localSearch
+    };
+    const externalRetriever: KnowledgeRetriever = {
+      search: externalSearch
     };
     const analyzer: IntentAnalyzer = {
       async analyze() {
@@ -149,15 +200,63 @@ describe("createAssistantService", () => {
       }
     };
 
-    const assistant = createAssistantService({ retriever, analyzer });
+    const assistant = createAssistantService({
+      localRetriever,
+      externalRetriever,
+      analyzer,
+      taskCatalog: createTaskCatalog(),
+      enableExternalKnowledge: true
+    });
     const reply = await assistant.reply("这个怎么办");
 
-    expect(search).toHaveBeenCalledWith("这个怎么办");
-    expect(reply).toContain("年假按司龄计算");
+    expect(externalSearch).toHaveBeenCalledWith("这个怎么办");
+    expect(localSearch).not.toHaveBeenCalled();
+    expect(reply).toContain("外部知识库答案");
+  });
+
+  it("falls back to local knowledge when external provider throws", async () => {
+    const localSearch = vi.fn().mockResolvedValue([
+      {
+        id: "local-2",
+        question: "报销规则是什么",
+        answer: "本地知识卡片答案",
+        scope: "适用于报销场景",
+        score: 0.9,
+        source: "knowledge_card"
+      }
+    ]);
+    const externalSearch = vi.fn().mockRejectedValue(new Error("provider crashed"));
+    const localRetriever: KnowledgeRetriever = {
+      search: localSearch
+    };
+    const externalRetriever: KnowledgeRetriever = {
+      search: externalSearch
+    };
+    const analyzer: IntentAnalyzer = {
+      async analyze() {
+        return {
+          intent: "knowledge_query",
+          source: "model"
+        };
+      }
+    };
+
+    const assistant = createAssistantService({
+      localRetriever,
+      externalRetriever,
+      analyzer,
+      taskCatalog: createTaskCatalog(),
+      enableExternalKnowledge: true
+    });
+    const reply = await assistant.reply("报销规则是什么");
+
+    expect(externalSearch).toHaveBeenCalledWith("报销规则是什么");
+    expect(localSearch).toHaveBeenCalledWith("报销规则是什么");
+    expect(reply).toContain("本地知识卡片答案");
   });
 
   it("degrades conservatively when analyzer throws", async () => {
-    const retriever: KnowledgeRetriever = {
+    const localRetriever: KnowledgeRetriever = {
       async search() {
         throw new Error("retriever should not be called after analyzer failure");
       }
@@ -168,7 +267,11 @@ describe("createAssistantService", () => {
       }
     };
 
-    const assistant = createAssistantService({ retriever, analyzer });
+    const assistant = createAssistantService({
+      localRetriever,
+      analyzer,
+      taskCatalog: createTaskCatalog()
+    });
     const reply = await assistant.reply("这个怎么办");
 
     expect(reply).toContain("请再具体描述一下问题");
