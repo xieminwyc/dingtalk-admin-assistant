@@ -31,6 +31,31 @@ describe("KnowledgeCardRetriever", () => {
     expect(hits[0]?.department).toBe("IT");
   });
 
+  it("sorts hits by score in descending order", async () => {
+    const sortingRetriever = new KnowledgeCardRetriever([
+      {
+        id: "card-keyword-first",
+        title: "会议制度",
+        content: "这是关键词命中的低分结果。",
+        department: "行政",
+        keywords: ["预订"]
+      },
+      {
+        id: "card-title-second",
+        title: "预订",
+        content: "这是标题命中的高分结果。",
+        department: "行政",
+        keywords: ["预约"]
+      }
+    ]);
+
+    const hits = await sortingRetriever.search("预订");
+
+    expect(hits).toHaveLength(2);
+    expect(hits[0]?.id).toBe("card-title-second");
+    expect(hits[0]?.score).toBeGreaterThan(hits[1]?.score ?? 0);
+  });
+
   it("returns no hits when nothing matches", async () => {
     const hits = await retriever.search("会议室怎么预订");
 

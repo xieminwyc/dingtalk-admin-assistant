@@ -33,7 +33,7 @@ export class KnowledgeCardRetriever implements KnowledgeRetriever {
       );
     });
 
-    return matches.map((card) => {
+    const hits = matches.map((card) => {
       const titleMatched = normalizeText(card.title) === normalizedQuery;
 
       return {
@@ -48,5 +48,8 @@ export class KnowledgeCardRetriever implements KnowledgeRetriever {
         source: "knowledge_card"
       };
     });
+
+    // assistant 目前会优先读取 hits[0]，这里先把高置信结果排到最前面。
+    return hits.sort((left, right) => right.score - left.score);
   }
 }
