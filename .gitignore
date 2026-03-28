@@ -1,4 +1,5 @@
 .next
+.worktrees
 node_modules
 .env
 .env.local
