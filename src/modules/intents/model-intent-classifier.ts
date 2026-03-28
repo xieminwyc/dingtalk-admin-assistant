@@ -34,7 +34,7 @@ function extractIntentFromContent(content: string): IntentType {
     // 模型偶发返回非 JSON 时，统一回落成 unknown，避免误判。
   }
 
-  return content;
+  return "unknown";
 }
 
 function formatSiliconFlowLog(message: string) {
