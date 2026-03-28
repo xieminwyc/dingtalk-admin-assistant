@@ -1,13 +1,10 @@
-import { FaqKnowledgeRetriever } from "@/modules/knowledge/faq-retriever";
-import { sampleAdminFaq } from "@/modules/knowledge/sample-faq";
-import { createAssistantService } from "@/modules/assistant/assistant.service";
+import { createAssistantRuntime } from "@/modules/assistant/create-assistant-runtime";
 
 export const runtime = "nodejs";
 
-// 一期先用内置 FAQ 检索器把主链路跑通，后续再替换成数据库或外部 RAG Provider。
-const assistantService = createAssistantService({
-  retriever: new FaqKnowledgeRetriever(sampleAdminFaq)
-});
+// route 只保留 HTTP 边界，真正的能力编排统一交给 runtime helper。
+// 这样 webhook 与 stream 两个入口可以稳定复用同一套默认依赖。
+const assistantRuntime = createAssistantRuntime();
 
 type DingTalkWebhookPayload = {
   text?: {
@@ -32,7 +29,7 @@ export async function POST(request: Request) {
   }
 
   // webhook 这一层只负责收发消息，不承担问答细节，避免路由文件变重。
-  const reply = await assistantService.reply(message);
+  const reply = await assistantRuntime.assistant.reply(message);
 
   return Response.json({
     reply

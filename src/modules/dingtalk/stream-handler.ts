@@ -16,6 +16,17 @@ type StreamReplyPort = {
   replyMarkdown(sessionWebhook: string, text: string): Promise<void>;
 };
 
+type StreamHandlerResult =
+  | {
+      success: true;
+      retryable: false;
+    }
+  | {
+      success: false;
+      retryable: boolean;
+      reason: string;
+    };
+
 export function extractIncomingText(payload: StreamTextPayload) {
   const message = payload.text?.content?.trim();
 
@@ -27,12 +38,15 @@ export function createDingTalkStreamHandler(input: {
   replier: StreamReplyPort;
 }) {
   // 这一层只负责把钉钉消息转成“assistant 输入 -> 回复输出”的统一流程。
-  return async function handleIncomingMessage(payload: StreamMessagePayload) {
+  return async function handleIncomingMessage(
+    payload: StreamMessagePayload
+  ): Promise<StreamHandlerResult> {
     const message = extractIncomingText(payload);
 
     if (!message) {
       return {
         success: false,
+        retryable: false,
         reason: "empty message"
       };
     }
@@ -40,6 +54,7 @@ export function createDingTalkStreamHandler(input: {
     if (!payload.sessionWebhook) {
       return {
         success: false,
+        retryable: false,
         reason: "missing session webhook"
       };
     }
@@ -49,7 +64,8 @@ export function createDingTalkStreamHandler(input: {
     await input.replier.replyMarkdown(payload.sessionWebhook, reply);
 
     return {
-      success: true
+      success: true,
+      retryable: false
     };
   };
 }

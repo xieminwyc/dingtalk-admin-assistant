@@ -11,6 +11,8 @@ export const DEFAULT_CLARIFICATION_PROMPT =
   "我可以帮你查制度说明，或告诉你办理入口。请再具体描述一下问题。";
 const EXTERNAL_RELIABLE_SCORE = 0.6;
 
+// router 只依赖“能把任务请求解析成目录结果”的最小能力，
+// 这样后面无论任务来源是本地种子、数据库还是外部服务，都能直接替换。
 export interface TaskCatalogResolver {
   resolve(input: TaskCatalogResolveInput): TaskCatalogResolution;
 }
@@ -22,6 +24,8 @@ export type RequestRouteInput = {
   taskType?: string;
 };
 
+// 澄清回复在路由层统一生成，assistant service 只复用这里的结果，
+// 避免同一条保守文案在多处维护后产生漂移。
 export function buildClarificationResolution(reason?: string): AssistantResolution {
   return {
     kind: "clarification",
@@ -41,11 +45,12 @@ function buildKnowledgeResolution(hit: KnowledgeHit): AssistantResolution {
   };
 }
 
+// 事务路由只负责把目录结果翻译成 assistant 可消费的统一结构，
+// 不在这里决定“这个请求是不是事务”，那是 intent analyzer 的职责。
 function buildTaskResolution(
   taskCatalog: TaskCatalogResolver,
   input: { query: string; taskType?: string }
 ): AssistantResolution {
-  // router 只约束“能 resolve 即可”，这样 service、测试和未来其他任务源都不必耦合具体类。
   const task = taskCatalog.resolve({
     query: input.query,
     taskType: input.taskType
@@ -64,13 +69,15 @@ function buildTaskResolution(
   };
 }
 
+// 知识检索采用“外部优先，本地兜底”的一期策略：
+// 只有显式启用外部 provider 时才尝试外部结果，且必须达到可靠分数，
+// 否则一律回退到本地知识卡片，保证机器人先稳定可用。
 async function searchKnowledge(input: {
   query: string;
   localRetriever: KnowledgeRetriever;
   externalRetriever?: KnowledgeRetriever;
   enableExternalKnowledge?: boolean;
 }) {
-  // 只有显式开启外部 provider 时才会尝试，避免把知识路由变成隐式联网依赖。
   if (input.enableExternalKnowledge && input.externalRetriever) {
     try {
       const externalHits = await input.externalRetriever.search(input.query);
@@ -115,6 +122,7 @@ export function createRequestRouter(input: {
           return buildKnowledgeResolution(hits[0]);
         }
         case "task_request":
+          // 任务请求允许上游透传结构化 taskType；没有时就退回 query 关键词解析。
           return buildTaskResolution(input.taskCatalog, request);
         case "handoff_request":
           return {

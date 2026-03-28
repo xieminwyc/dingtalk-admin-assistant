@@ -3,6 +3,8 @@ export type HandoffDecision = {
   reason?: string;
 };
 
+// handoff 判断只负责做最后一道安全边界：
+// 没命中知识，或命中分数太低时，宁可转人工，也不让机器人硬猜答案。
 export function evaluateHandoff(input: {
   hitCount: number;
   topScore: number;

@@ -22,6 +22,10 @@ const TASK_CUE_PATTERN =
   /(我要|我想|帮我|申请|办理|发起|提交|怎么|如何|入口|流程|审批)/;
 const KNOWLEDGE_PATTERN = /(规则|制度|政策|规范|说明|是什么|什么意思|区别)/;
 
+function formatIntentLog(message: string) {
+  return `[intent] ${message}`;
+}
+
 function classifyByRule(query: string): IntentType | null {
   const normalizedQuery = query.trim().toLowerCase();
 
@@ -65,6 +69,10 @@ export function createIntentAnalyzer(
       const ruleIntent = classifyByRule(query);
 
       if (ruleIntent) {
+        console.info(
+          formatIntentLog(`source=rule intent=${ruleIntent} query="${query}"`)
+        );
+
         return {
           intent: ruleIntent,
           source: "rule"
@@ -79,12 +87,26 @@ export function createIntentAnalyzer(
       }
 
       try {
+        console.info(
+          formatIntentLog(`source=model action=classify query="${query}"`)
+        );
+
+        const modelIntent = await input.modelClassifier.classify(query);
+        console.info(
+          formatIntentLog(`source=model intent=${modelIntent} query="${query}"`)
+        );
+
         return {
-          intent: await input.modelClassifier.classify(query),
+          intent: modelIntent,
           source: "model"
         };
       } catch {
         // 模型兜底不可用时，仍然给出保守分类结果。
+        const reason = "model failed";
+        console.warn(
+          formatIntentLog(`source=model intent=unknown query="${query}" reason="${reason}"`)
+        );
+
         return {
           intent: "unknown",
           source: "model"

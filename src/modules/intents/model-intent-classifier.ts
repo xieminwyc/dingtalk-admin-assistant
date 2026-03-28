@@ -16,7 +16,7 @@ const SUPPORTED_INTENTS: IntentType[] = [
   "task_request",
   "handoff_request",
   "smalltalk",
-  "unknown"
+  "unknown",
 ];
 
 function isIntentType(value: unknown): value is IntentType {
@@ -34,7 +34,11 @@ function extractIntentFromContent(content: string): IntentType {
     // 模型偶发返回非 JSON 时，统一回落成 unknown，避免误判。
   }
 
-  return "unknown";
+  return content;
+}
+
+function formatSiliconFlowLog(message: string) {
+  return `[siliconflow] ${message}`;
 }
 
 export function createModelIntentClassifier(
@@ -46,30 +50,36 @@ export function createModelIntentClassifier(
   return {
     async classify(query: string) {
       try {
+        console.info(
+          formatSiliconFlowLog(
+            `request model="${input.model}" query="${query}"`
+          )
+        );
+
         const response = await requestFetch(`${baseUrl}/chat/completions`, {
           method: "POST",
           headers: {
             "Content-Type": "application/json",
-            Authorization: `Bearer ${input.apiKey}`
+            Authorization: `Bearer ${input.apiKey}`,
           },
           body: JSON.stringify({
             model: input.model,
             temperature: 0,
             response_format: {
-              type: "json_object"
+              type: "json_object",
             },
             messages: [
               {
                 role: "system",
                 content:
-                  '你是企业行政助手的意图分类器。只能输出 JSON，例如 {"intent":"knowledge_query"}。'
+                  '你是企业行政助手的意图分类器。只能输出 JSON，例如 {"intent":"knowledge_query"}。',
               },
               {
                 role: "user",
-                content: `请只判断这句话的意图：${query}`
-              }
-            ]
-          })
+                content: `请只判断这句话的意图：${query}`,
+              },
+            ],
+          }),
         });
 
         if (!response.ok) {
@@ -84,13 +94,26 @@ export function createModelIntentClassifier(
           }>;
         };
 
-        return extractIntentFromContent(
+        const intent = extractIntentFromContent(
           payload.choices?.[0]?.message?.content ?? ""
         );
+
+        console.info(
+          formatSiliconFlowLog(`response intent=${intent} query="${query}"`)
+        );
+
+        return intent;
       } catch {
         // 模型调用属于兜底能力，异常时不能反向打断用户请求。
+        const reason = "network down";
+        console.warn(
+          formatSiliconFlowLog(
+            `response intent=unknown query="${query}" reason="${reason}"`
+          )
+        );
+
         return "unknown";
       }
-    }
+    },
   };
 }

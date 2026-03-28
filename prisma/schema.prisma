@@ -1,0 +1,99 @@
+generator client {
+  provider = "prisma-client"
+}
+
+datasource db {
+  provider = "sqlite"
+}
+
+enum ConversationLogRouteType {
+  knowledge_query
+  task_request
+  handoff_request
+  smalltalk
+  unknown
+}
+
+// 部门是知识卡、事务目录、外部知识配置的最小归属单位。
+model Department {
+  id          String                  @id @default(cuid())
+  code        String                  @unique
+  name        String
+  createdAt   DateTime                @default(now())
+  updatedAt   DateTime                @updatedAt
+  knowledgeCards         KnowledgeCard[]
+  taskCatalogItems       TaskCatalogItem[]
+  providerConfigs        KnowledgeProviderConfig[]
+}
+
+// 知识卡先只保留路由和展示最常用的字段，避免 schema 一开始就膨胀。
+model KnowledgeCard {
+  id           String   @id @default(cuid())
+  departmentId  String
+  department    Department @relation(fields: [departmentId], references: [id])
+  title         String
+  content       String
+  scope         String?
+  keywords      String
+  createdAt     DateTime @default(now())
+  updatedAt     DateTime @updatedAt
+  conversationLogs ConversationLog[]
+}
+
+// 事务目录项与知识卡类似，先保存稳定展示字段和入口字段。
+model TaskCatalogItem {
+  id              String   @id @default(cuid())
+  departmentId    String
+  department      Department @relation(fields: [departmentId], references: [id])
+  taskType        String   @unique
+  title           String
+  description     String
+  keywords        String
+  preparations    String
+  entryUrl        String?
+  fallbackContact String
+  createdAt       DateTime @default(now())
+  updatedAt       DateTime @updatedAt
+  conversationLogs ConversationLog[]
+}
+
+// 外部知识 provider 先用轻量配置模型占位，后续可扩展成真正的接入配置表。
+model KnowledgeProviderConfig {
+  id          String   @id @default(cuid())
+  departmentId String?
+  department   Department? @relation(fields: [departmentId], references: [id])
+  providerKey String
+  displayName String
+  enabled     Boolean  @default(false)
+  endpointUrl String?
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+}
+
+// 会话日志保存的是路由边界信息，不是完整对话全文；
+// 这样既够分析，也能保持存储成本轻。
+model ConversationLog {
+  id                String                    @id @default(cuid())
+  conversationId    String
+  messageId         String
+  userId            String
+  query             String
+  routeType         ConversationLogRouteType
+  // null 表示这次路由没有得到置信度，避免用 0 伪装成“低分但存在”。
+  routeConfidence   Float?
+  // 这里只写最终命中的知识卡引用，不记录候选列表或中间痕迹。
+  knowledgeCardId   String?
+  // 这里只写最终命中的事务目录项引用，不记录候选列表或中间痕迹。
+  taskCatalogItemId String?
+  // sequence 是稳定的写入顺序兜底字段；createdAt 相同的时候，它负责把同毫秒写入排成确定顺序。
+  // 这个值由仓库在写入时显式分配，Prisma 未来实现可以用它和 createdAt 一起做 orderBy。
+  sequence          Int       @unique
+  createdAt         DateTime                  @default(now())
+  knowledgeCard     KnowledgeCard?            @relation(fields: [knowledgeCardId], references: [id])
+  taskCatalogItem   TaskCatalogItem?          @relation(fields: [taskCatalogItemId], references: [id])
+
+  @@index([conversationId, createdAt, sequence])
+  @@index([routeType])
+  @@index([knowledgeCardId])
+  @@index([taskCatalogItemId])
+}

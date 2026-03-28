@@ -54,6 +54,7 @@ describe("createDingTalkStreamHandler", () => {
       "结论\n进入审批后发起补卡申请。"
     );
     expect(result.success).toBe(true);
+    expect(result.retryable).toBe(false);
   });
 
   it("skips replying when the incoming message is empty", async () => {
@@ -79,6 +80,37 @@ describe("createDingTalkStreamHandler", () => {
     expect(assistant.reply).not.toHaveBeenCalled();
     expect(replyMarkdown).not.toHaveBeenCalled();
     expect(result.success).toBe(false);
-    expect(result.reason).toContain("empty");
+    expect(result.retryable).toBe(false);
+    if (!result.success) {
+      expect(result.reason).toContain("empty");
+    }
+  });
+
+  it("marks missing session webhook as a non-retryable validation failure", async () => {
+    const replyMarkdown = vi.fn(async () => undefined);
+    const assistant = {
+      reply: vi.fn(async () => "不会被调用")
+    };
+
+    const handler = createDingTalkStreamHandler({
+      assistant,
+      replier: {
+        replyMarkdown
+      }
+    });
+
+    const result = await handler({
+      text: {
+        content: "我要请假"
+      }
+    });
+
+    expect(assistant.reply).not.toHaveBeenCalled();
+    expect(replyMarkdown).not.toHaveBeenCalled();
+    expect(result.success).toBe(false);
+    expect(result.retryable).toBe(false);
+    if (!result.success) {
+      expect(result.reason).toContain("missing session webhook");
+    }
   });
 });

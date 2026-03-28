@@ -14,6 +14,8 @@ function isKeywordHit(query: string, keyword: string) {
   return normalizeText(query).includes(normalizeText(keyword));
 }
 
+// 当目录里完全找不到事务时，统一返回一个保守兜底结果，
+// 避免 assistant 误导用户跳到错误入口。
 function buildFallbackResolution(): TaskCatalogResolution {
   // 找不到明确入口时，优先把人带到可确认入口的人，而不是硬猜一个链接。
   return {
@@ -25,6 +27,8 @@ function buildFallbackResolution(): TaskCatalogResolution {
   };
 }
 
+// 目录项属于静态种子数据；这里复制出一份 resolution，
+// 避免后续调用方修改返回值时反向污染目录原始数据。
 function mapItemToResolution(
   item: TaskCatalogItem
 ): TaskCatalogResolution {
@@ -41,8 +45,9 @@ function mapItemToResolution(
 export class TaskCatalogService {
   constructor(private readonly catalog: TaskCatalogItem[]) {}
 
+  // taskType 是上游已经结构化完成后的精确命中路径，
+  // 只要传入可识别 code，就直接走这条分支，不再依赖关键词猜测。
   private findByTaskType(taskType?: string) {
-    // taskType 是最高优先级的精确匹配入口，只要传了就先按目录 code 查。
     if (!taskType) {
       return undefined;
     }
@@ -54,8 +59,9 @@ export class TaskCatalogService {
     );
   }
 
+  // 关键词命中只负责自然语言兜底，
+  // 适合“我要请假”“帮我预约会议室”这类还没被结构化的原始表达。
   private findByKeyword(query?: string) {
-    // 关键词命中是 taskType 的兜底路径，只有有自然语言查询时才执行。
     if (!query) {
       return undefined;
     }
@@ -71,8 +77,11 @@ export class TaskCatalogService {
     return undefined;
   }
 
+  // resolve 是事务目录的统一入口：
+  // 1. 先尝试结构化 taskType 精确命中
+  // 2. 精确命中失败时，再退回到关键词匹配
+  // 3. 两条都找不到时，返回保守兜底
   resolve(input: TaskCatalogResolveInput): TaskCatalogResolution {
-    // 先看是否有明确的 taskType；没有或无效时，再退回到关键词检索。
     const matchedByType = this.findByTaskType(input.taskType);
     const matchedByKeyword = this.findByKeyword(input.query);
     const matchedItem = matchedByType ?? matchedByKeyword?.item;

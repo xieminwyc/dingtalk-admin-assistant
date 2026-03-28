@@ -22,12 +22,12 @@
 
 如果你想让这个项目真正“进钉钉”，当前最小闭环是：
 
-1. 在钉钉后台创建组织内 AI 助理或企业内部应用  
-2. 开启机器人/AI 助理能力，并选择 `Stream Mode`  
-3. 拿到 `Client ID` 和 `Client Secret`  
-4. 把凭证写进本地 `.env.local`  
-5. 启动本项目的本地服务和 `Stream` 长连接服务  
-6. 在钉钉里给机器人发消息，验证是否能收到回复  
+1. 在钉钉后台创建组织内 AI 助理或企业内部应用
+2. 开启机器人/AI 助理能力，并选择 `Stream Mode`
+3. 拿到 `Client ID` 和 `Client Secret`
+4. 把凭证写进本地 `.env.local`
+5. 启动本项目的本地服务和 `Stream` 长连接服务
+6. 在钉钉里给机器人发消息，验证是否能收到回复
 
 ---
 
@@ -47,9 +47,9 @@
 
 所以当前项目里会同时存在：
 
-| 入口 | 作用 |
-| --- | --- |
-| `npm run dev` | 跑最小调试页和普通 API |
+| 入口                 | 作用                           |
+| -------------------- | ------------------------------ |
+| `npm run dev`        | 跑最小调试页和普通 API         |
 | `npm run stream:dev` | 跑钉钉长连接客户端，且自动重启 |
 
 ---
@@ -70,10 +70,10 @@
 
 在钉钉开放平台里：
 
-1. 进入开发者后台  
-2. 创建一个**企业内部应用**或**组织内 AI 助理**  
-3. 给它命名，例如：`行政万事通`  
-4. 配置头像、简介和可见范围  
+1. 进入开发者后台
+2. 创建一个**企业内部应用**或**组织内 AI 助理**
+3. 给它命名，例如：`行政万事通`
+4. 配置头像、简介和可见范围
 
 ### 1.3 开启机器人或 AI 助理能力
 
@@ -210,17 +210,34 @@ http://localhost:3001
 在钉钉里找到你刚创建的 `行政万事通`，发一条消息，例如：
 
 ```text
-补卡流程是什么
+年假规则是什么
 ```
 
 如果接通成功，当前版本应该能回类似下面的文本：
 
 ```text
 结论
-进入审批后发起补卡申请，由直属主管审批。
+年假天数按司龄计算，试用期不单独享有年假，具体以 HR 制度公告为准。
 
 适用范围
-适用于因漏打卡产生异常的员工
+适用于正式员工年假政策查询
+```
+
+你也可以再测一条事务型请求：
+
+```text
+我要请假
+```
+
+当前版本应该会回带入口的事务指引，例如：
+
+```text
+事务入口
+https://oa.example.com/tasks/leave-application
+
+操作指引
+用于发起请假审批，适合年假、病假、事假等场景。
+办理前准备：确认请假日期、准备请假类型、提前和直属主管沟通
 ```
 
 ---
@@ -278,27 +295,42 @@ npm run stream:dev
 
 ### API 与调试页
 
-| 文件 | 作用 |
-| --- | --- |
-| [page.tsx](/Users/xiemin/monter/dingtalk-admin-assistant/src/app/page.tsx) | 最小调试页入口 |
+| 文件                                                                                            | 作用                  |
+| ----------------------------------------------------------------------------------------------- | --------------------- |
+| [page.tsx](/Users/xiemin/monter/dingtalk-admin-assistant/src/app/page.tsx)                      | 最小调试页入口        |
 | [route.ts](/Users/xiemin/monter/dingtalk-admin-assistant/src/app/api/dingtalk/webhook/route.ts) | 本地 webhook API 路由 |
 
 ### Stream 接入层
 
-| 文件 | 作用 |
-| --- | --- |
-| [stream-handler.ts](/Users/xiemin/monter/dingtalk-admin-assistant/src/modules/dingtalk/stream-handler.ts) | 处理单条钉钉消息 |
-| [stream-client.ts](/Users/xiemin/monter/dingtalk-admin-assistant/src/modules/dingtalk/stream-client.ts) | SDK 封装、监听器注册、回消息 |
-| [start-dingtalk-stream.ts](/Users/xiemin/monter/dingtalk-admin-assistant/src/scripts/start-dingtalk-stream.ts) | 启动长连接客户端 |
+| 文件                                                                                                           | 作用                         |
+| -------------------------------------------------------------------------------------------------------------- | ---------------------------- |
+| [stream-handler.ts](/Users/xiemin/monter/dingtalk-admin-assistant/src/modules/dingtalk/stream-handler.ts)      | 处理单条钉钉消息             |
+| [stream-client.ts](/Users/xiemin/monter/dingtalk-admin-assistant/src/modules/dingtalk/stream-client.ts)        | SDK 封装、监听器注册、回消息 |
+| [start-dingtalk-stream.ts](/Users/xiemin/monter/dingtalk-admin-assistant/src/scripts/start-dingtalk-stream.ts) | 启动长连接客户端             |
 
 ### 业务层
 
-| 文件 | 作用 |
-| --- | --- |
-| [assistant.service.ts](/Users/xiemin/monter/dingtalk-admin-assistant/src/modules/assistant/assistant.service.ts) | 问答主流程 |
-| [reply-builder.ts](/Users/xiemin/monter/dingtalk-admin-assistant/src/modules/assistant/reply-builder.ts) | 统一回复格式 |
-| [faq-retriever.ts](/Users/xiemin/monter/dingtalk-admin-assistant/src/modules/knowledge/faq-retriever.ts) | FAQ 检索 |
-| [handoff.service.ts](/Users/xiemin/monter/dingtalk-admin-assistant/src/modules/handoff/handoff.service.ts) | 转人工判断 |
+| 文件                                                                                                                           | 作用                           |
+| ------------------------------------------------------------------------------------------------------------------------------ | ------------------------------ |
+| [create-assistant-runtime.ts](/Users/xiemin/monter/dingtalk-admin-assistant/src/modules/assistant/create-assistant-runtime.ts) | 统一组装默认 runtime           |
+| [assistant.service.ts](/Users/xiemin/monter/dingtalk-admin-assistant/src/modules/assistant/assistant.service.ts)               | 问答主流程编排                 |
+| [reply-builder.ts](/Users/xiemin/monter/dingtalk-admin-assistant/src/modules/assistant/reply-builder.ts)                       | 统一回复格式                   |
+| [request-router.ts](/Users/xiemin/monter/dingtalk-admin-assistant/src/modules/router/request-router.ts)                        | 按意图分流知识 / 事务 / 转人工 |
+| [knowledge-card-retriever.ts](/Users/xiemin/monter/dingtalk-admin-assistant/src/modules/knowledge/knowledge-card-retriever.ts) | 本地知识卡片检索               |
+| [task-catalog.service.ts](/Users/xiemin/monter/dingtalk-admin-assistant/src/modules/tasks/task-catalog.service.ts)             | 事务目录入口解析               |
+| [handoff.service.ts](/Users/xiemin/monter/dingtalk-admin-assistant/src/modules/handoff/handoff.service.ts)                     | 转人工判断                     |
+
+### 内容整理流程
+
+当前项目的知识内容流程是：
+
+```text
+钉钉文档 -> 人工整理 -> Markdown 卡片 -> 本地知识卡 / 事务目录
+```
+
+模板文档见：
+
+[knowledge-card-template.md](/Users/xiemin/monter/dingtalk-admin-assistant/docs/knowledge-card-template.md)
 
 ---
 
@@ -312,11 +344,11 @@ Stream Mode + 独立长连接客户端
 
 你接下来最重要的工作就是：
 
-1. 去钉钉后台创建/配置应用  
-2. 拿到 `Client ID / Client Secret`  
-3. 写入 `.env.local`  
-4. 启动 `npm run stream:dev`  
-5. 在钉钉里给机器人发消息验证  
+1. 去钉钉后台创建/配置应用
+2. 拿到 `Client ID / Client Secret`
+3. 写入 `.env.local`
+4. 启动 `npm run stream:dev`
+5. 在钉钉里给机器人发消息验证
 
 ---
 
@@ -327,4 +359,50 @@ Stream Mode + 独立长连接客户端
 - 启动 Stream 服务  
   https://open-dingtalk.github.io/developerpedia/docs/develop/agent/bootstrap/
 - 官方 Node SDK  
-  https://github.com/open-dingtalk/dingtalk-stream-sdk-nodejs
+   https://github.com/open-dingtalk/dingtalk-stream-sdk-nodejs
+
+  用户输入消息
+  |
+  v
+  钉钉入口 / Webhook 入口
+  | Stream: [stream-client.ts](/Users/xiemin/monter/dingtalk-admin-assistant/src/modules/dingtalk/stream-client.ts#L112)
+  | Webhook: [route.ts](/Users/xiemin/monter/dingtalk-admin-assistant/src/app/api/dingtalk/webhook/route.ts#L15)
+  v
+  [createAssistantRuntime()](/Users/xiemin/monter/dingtalk-admin-assistant/src/modules/assistant/create-assistant-runtime.ts#L171)
+  |
+  |-- 读取环境变量
+  |-- 创建 localRetriever
+  |-- 创建 taskCatalog
+  |-- 如果环境变量齐全，创建 modelClassifier
+  |-- 创建 analyzer
+  v
+  [assistant.reply()](/Users/xiemin/monter/dingtalk-admin-assistant/src/modules/assistant/assistant.service.ts#L27)
+  |
+  v
+  [analyzer.analyze(query)](/Users/xiemin/monter/dingtalk-admin-assistant/src/modules/intents/intent-analyzer.ts#L64)
+  |
+  |-- 先走规则 [classifyByRule()](/Users/xiemin/monter/dingtalk-admin-assistant/src/modules/intents/intent-analyzer.ts#L25)
+  | |
+  | |-- 命中 smalltalk / handoff / task / knowledge
+  | | -> 直接返回，不调 SiliconFlow
+  | |
+  | |-- 没命中任何规则
+  | -> 如果 modelClassifier 已启用，才调 SiliconFlow
+  | -> 否则返回 unknown
+  v
+  [router.route()](/Users/xiemin/monter/dingtalk-admin-assistant/src/modules/router/request-router.ts#L104)
+  |
+  |-- knowledge_query
+  | -> 本地知识 / 外部 RAG
+  | -> [KnowledgeCardRetriever.search()](/Users/xiemin/monter/dingtalk-admin-assistant/src/modules/knowledge/knowledge-card-retriever.ts#L15)
+  |
+  |-- task_request
+  | -> [TaskCatalogService.resolve()](/Users/xiemin/monter/dingtalk-admin-assistant/src/modules/tasks/task-catalog.service.ts#L84)
+  |
+  |-- handoff_request / smalltalk / unknown
+  | -> 直接返回对应结果
+  v
+  [buildAssistantReply()](/Users/xiemin/monter/dingtalk-admin-assistant/src/modules/assistant/reply-builder.ts#L80)
+  |
+  v
+  最终回复用户

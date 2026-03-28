@@ -31,11 +31,14 @@ export function createAssistantService(input: {
         try {
           intent = await input.analyzer.analyze(query);
         } catch {
-          // analyzer 失效时先保守降级，避免把异常暴露给用户。
+          // analyzer 失效时不继续猜测路由，直接返回保守澄清，
+          // 避免把分类异常放大成错误答案或错误入口。
           return buildAssistantReply(buildClarificationResolution());
         }
       }
 
+      // assistant service 自己不判断知识/事务/人工，
+      // 它只负责串起“分析意图 -> 路由 -> 拼回复”的主流程。
       // 未接分析器时，默认按知识问答路径走，兼容现有单一路径调用方。
       const resolvedIntent =
         intent ??

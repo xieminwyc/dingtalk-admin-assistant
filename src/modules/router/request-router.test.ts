@@ -64,7 +64,9 @@ describe("createRequestRouter", () => {
 
     expect(resolution.kind).toBe("knowledge");
     expect(resolution.intent).toBe("knowledge_query");
-    expect(resolution.answer).toContain("司龄");
+    if (resolution.kind === "knowledge") {
+      expect(resolution.answer).toContain("司龄");
+    }
     expect(localRetriever.search).toHaveBeenCalledWith("年假规则是什么");
     expect(externalRetriever.search).not.toHaveBeenCalled();
   });
@@ -88,7 +90,9 @@ describe("createRequestRouter", () => {
       kind: "task",
       intent: "task_request"
     });
-    expect(resolution.entry).toContain("https://oa.example.com/tasks/leave-application");
+    if (resolution.kind === "task") {
+      expect(resolution.entry).toContain("https://oa.example.com/tasks/leave-application");
+    }
     expect(taskCatalog.resolve).toHaveBeenCalledWith({ query: "我要请假" });
     expect(localRetriever.search).not.toHaveBeenCalled();
   });
@@ -121,7 +125,9 @@ describe("createRequestRouter", () => {
       taskType: "expense_application"
     });
     expect(resolution.kind).toBe("task");
-    expect(resolution.entry).toContain("expense-application");
+    if (resolution.kind === "task") {
+      expect(resolution.entry).toContain("expense-application");
+    }
   });
 
   it("routes handoff_request to handoff resolution", async () => {
@@ -211,7 +217,9 @@ describe("createRequestRouter", () => {
     expect(externalRetriever.search).toHaveBeenCalledWith("年假规则是什么");
     expect(localRetriever.search).toHaveBeenCalledWith("年假规则是什么");
     expect(resolution.kind).toBe("knowledge");
-    expect(resolution.answer).toContain("司龄");
+    if (resolution.kind === "knowledge") {
+      expect(resolution.answer).toContain("司龄");
+    }
   });
 
   it("falls back to local knowledge when external provider returns a low-score hit", async () => {
@@ -245,7 +253,9 @@ describe("createRequestRouter", () => {
     expect(externalRetriever.search).toHaveBeenCalledWith("年假规则是什么");
     expect(localRetriever.search).toHaveBeenCalledWith("年假规则是什么");
     expect(resolution.kind).toBe("knowledge");
-    expect(resolution.answer).toContain("司龄");
+    if (resolution.kind === "knowledge") {
+      expect(resolution.answer).toContain("司龄");
+    }
   });
 
   it("falls back to local knowledge when external provider returns no hits", async () => {
@@ -269,6 +279,8 @@ describe("createRequestRouter", () => {
     expect(externalRetriever.search).toHaveBeenCalledWith("年假规则是什么");
     expect(localRetriever.search).toHaveBeenCalledWith("年假规则是什么");
     expect(resolution.kind).toBe("knowledge");
-    expect(resolution.answer).toContain("司龄");
+    if (resolution.kind === "knowledge") {
+      expect(resolution.answer).toContain("司龄");
+    }
   });
 });
