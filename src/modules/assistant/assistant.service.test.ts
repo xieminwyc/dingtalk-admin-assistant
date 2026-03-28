@@ -303,6 +303,68 @@ describe("createAssistantService", () => {
     expect(reply).toContain("请再具体描述一下问题");
   });
 
+  it("prefers the response generator when model output is available", async () => {
+    const assistant = createAssistantService({
+      localRetriever: {
+        async search() {
+          return {
+            hits: [
+              {
+                id: "faq-1",
+                question: "年假规则是什么",
+                answer: "年假按司龄计算。",
+                score: 0.98,
+                source: "faq"
+              }
+            ],
+            relatedKeywords: []
+          };
+        }
+      },
+      taskCatalog: createTaskCatalog(),
+      responseGenerator: {
+        generate: vi
+          .fn()
+          .mockResolvedValue("依据《年假规则》，年假天数按司龄计算。")
+      }
+    });
+
+    const reply = await assistant.reply("年假规则是什么");
+
+    expect(reply).toBe("依据《年假规则》，年假天数按司龄计算。");
+  });
+
+  it("falls back to reply-builder when the response generator returns null", async () => {
+    const assistant = createAssistantService({
+      localRetriever: {
+        async search() {
+          return {
+            hits: [
+              {
+                id: "faq-1",
+                question: "年假规则是什么",
+                answer: "年假按司龄计算。",
+                scope: "适用于正式员工",
+                score: 0.98,
+                source: "faq"
+              }
+            ],
+            relatedKeywords: []
+          };
+        }
+      },
+      taskCatalog: createTaskCatalog(),
+      responseGenerator: {
+        generate: vi.fn().mockResolvedValue(null)
+      }
+    });
+
+    const reply = await assistant.reply("年假规则是什么");
+
+    expect(reply).toContain("结论");
+    expect(reply).toContain("年假按司龄计算");
+  });
+
   it("loads session context for the analyzer and persists both user and assistant messages", async () => {
     const append = vi.fn(async () => undefined);
     const loadRecentContext = vi.fn(async () => [

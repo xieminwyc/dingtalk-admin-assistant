@@ -1,6 +1,7 @@
 import { z } from "zod";
 
 import { createAssistantService } from "@/modules/assistant/assistant.service";
+import { createResponseGenerator } from "@/modules/assistant/response-generator";
 import { createIntentAnalyzer } from "@/modules/intents/intent-analyzer";
 import {
   createModelIntentClassifier,
@@ -30,6 +31,7 @@ type AssistantRuntime = {
   assistant: ReturnType<typeof createAssistantService>;
   analyzer: ReturnType<typeof createIntentAnalyzer>;
   modelClassifier?: ModelIntentClassifier;
+  responseGenerator?: ReturnType<typeof createResponseGenerator>;
   localRetriever: KnowledgeRetriever;
   externalRetriever?: KnowledgeRetriever;
   taskCatalog: TaskCatalogService;
@@ -198,6 +200,14 @@ export function createAssistantRuntime(
         fetch: input.fetch
       })
     : undefined;
+  const responseGenerator = isModelClassifierEnabled(env)
+    ? createResponseGenerator({
+        apiKey: env.siliconflowApiKey!,
+        baseUrl: env.siliconflowBaseUrl!,
+        model: env.siliconflowModel!,
+        fetch: input.fetch
+      })
+    : undefined;
 
   const analyzer = createIntentAnalyzer({
     modelClassifier
@@ -216,6 +226,7 @@ export function createAssistantRuntime(
     localRetriever,
     analyzer,
     modelClassifier,
+    responseGenerator,
     externalRetriever,
     taskCatalog,
     conversationLogger,
@@ -229,7 +240,8 @@ export function createAssistantRuntime(
       enableExternalKnowledge: Boolean(externalRetriever),
       analyzer,
       conversationLogger,
-      conversationContextService
+      conversationContextService,
+      responseGenerator
     })
   };
 }

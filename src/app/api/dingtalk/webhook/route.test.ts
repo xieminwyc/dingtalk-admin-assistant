@@ -24,6 +24,14 @@ function buildDecisionPayload(query: string) {
   };
 }
 
+function buildGeneratedReply(query: string) {
+  if (query.includes("请假")) {
+    return "事务入口\nhttps://oa.example.com/tasks/leave-application\n\n操作指引\n请按入口提示继续办理";
+  }
+
+  return "结论\n年假天数按司龄计算，试用期不单独享有年假，具体以 HR 制度公告为准。\n\n适用范围\n适用于正式员工年假政策查询";
+}
+
 describe("POST /api/dingtalk/webhook", () => {
   beforeEach(() => {
     process.env.SILICONFLOW_API_KEY = "test-key";
@@ -34,7 +42,21 @@ describe("POST /api/dingtalk/webhook", () => {
       const requestBody = JSON.parse(String(init?.body ?? "{}")) as {
         messages?: Array<{ content?: string }>;
       };
-      const query = requestBody.messages?.[1]?.content?.split("当前用户消息：")[1]?.trim() ?? "";
+      const query =
+        requestBody.messages?.[1]?.content?.split("当前用户消息：")[1]?.trim() ?? "";
+      const systemPrompt = requestBody.messages?.[0]?.content ?? "";
+
+      if (String(systemPrompt).includes("回复生成器")) {
+        return Response.json({
+          choices: [
+            {
+              message: {
+                content: buildGeneratedReply(query)
+              }
+            }
+          ]
+        });
+      }
 
       return Response.json({
         choices: [

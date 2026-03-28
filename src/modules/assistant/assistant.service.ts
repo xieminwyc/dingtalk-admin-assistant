@@ -6,6 +6,7 @@ import type { ConversationContextTurn } from "../logging/conversation-context.se
 import type { ConversationLogRepositoryLike } from "../logging/conversation-log.types";
 import type { KnowledgeRetriever } from "../knowledge/retriever.types";
 import { buildAssistantReply } from "./reply-builder";
+import type { ResponseGenerator } from "./response-generator";
 import {
   buildClarificationResolution,
   createRequestRouter,
@@ -62,6 +63,7 @@ export function createAssistantService(input: {
   analyzer?: IntentAnalyzer;
   conversationContextService?: ConversationContextLoader;
   conversationLogger?: Pick<ConversationLogRepositoryLike, "append">;
+  responseGenerator?: ResponseGenerator;
 }) {
   const router = createRequestRouter({
     localRetriever: input.localRetriever,
@@ -150,7 +152,14 @@ export function createAssistantService(input: {
         // 现在先直接透传给旧 router，帮助事务命中更稳定。
         taskType: resolvedIntent.taskHint
       });
-      const reply = buildAssistantReply(resolution);
+      const generatedReply = input.responseGenerator
+        ? await input.responseGenerator.generate({
+            query: replyInput.query,
+            conversationContext,
+            resolution
+          })
+        : null;
+      const reply = generatedReply ?? buildAssistantReply(resolution);
 
       await appendConversationLog({
         sessionId: replyInput.sessionId,
