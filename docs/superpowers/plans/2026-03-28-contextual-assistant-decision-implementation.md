@@ -1,89 +1,92 @@
-# 上下文驱动员工助手重构 Implementation Plan
+# 上下文驱动员工助手重构实施计划
 
-> **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
+> **给代理式执行者：** 必须使用 `superpowers:subagent-driven-development`（推荐）或 `superpowers:executing-plans` 按任务逐步执行本计划。所有步骤使用复选框 `- [ ]` 语法跟踪。
 
-**Goal:** Replace the current rule-first routing assistant with a context-aware, model-led decision flow that can choose between knowledge, task, chat, and clarify modes, call tools when needed, and generate natural final replies grounded in tool facts.
+**目标：** 将当前规则优先的路由式助手，重构为一个具备上下文理解、模型主导决策、按需调用知识/事务工具、并能基于工具事实生成自然回复的员工助手。
 
-**Architecture:** Keep the DingTalk stream/webhook entry points and `assistant.service` as the main runtime boundary, but replace the current “intent enum -> switch router -> local template” flow with a session-scoped conversation context layer, a model-driven Decision Engine, unified knowledge/task provider contracts, and a response generation layer that turns tool facts into natural replies. Ship the refactor incrementally so the project stays testable after every task.
+**架构：** 保留钉钉 Stream / Webhook 入口和 `assistant.service` 作为主运行时边界，但把现有“意图枚举 -> switch 路由 -> 本地模板回复”的链路，替换为“会话上下文层 + 模型驱动的决策引擎 + 统一知识/事务 provider 契约 + 基于工具事实的回复生成层”。整个重构按可渐进交付的方式落地，保证每个任务完成后都可单独测试。
 
-**Tech Stack:** Node.js, TypeScript, Next.js App Router, Vitest, DingTalk Stream SDK, Zod, dotenv, fetch-based LLM integration
+**技术栈：** Node.js、TypeScript、Next.js App Router、Vitest、DingTalk Stream SDK、Zod、dotenv、基于 fetch 的 LLM 集成
 
 ---
 
-## Scope
+## 范围
 
-This plan implements the approved spec in [`docs/superpowers/specs/2026-03-28-contextual-assistant-decision-design.md`](/Users/xiemin/monter/dingtalk-admin-assistant/docs/superpowers/specs/2026-03-28-contextual-assistant-decision-design.md):
+本计划实现已批准的 spec：
+[`docs/superpowers/specs/2026-03-28-contextual-assistant-decision-design.md`](/Users/xiemin/monter/dingtalk-admin-assistant/docs/superpowers/specs/2026-03-28-contextual-assistant-decision-design.md)
 
-- Replace `knowledge_query / task_request / handoff_request / smalltalk / unknown` with `knowledge / task / chat / clarify`
-- Make the LLM the primary decision maker
-- Add session-scoped conversation context and topic-shift handling
-- Unify local seed knowledge, uploaded-document-ready boundaries, and external RAG behind one knowledge provider contract
-- Enrich task results with `actionType`, `availability`, and better follow-up metadata
-- Replace rigid reply templates with model-generated replies grounded in provider facts
+本次实施包含：
 
-This plan does not implement:
+- 将 `knowledge_query / task_request / handoff_request / smalltalk / unknown` 替换为 `knowledge / task / chat / clarify`
+- 让 LLM 成为主决策器
+- 增加按会话组织的上下文与话题切换处理
+- 将本地样例知识、未来上传文档边界、外部 RAG 统一到同一个知识 provider 契约
+- 为事务结果增加 `actionType`、`availability` 和更丰富的后续引导信息
+- 将当前僵硬的模板回复，替换为“基于工具事实的模型生成回复”
 
-- Real DingTalk OA launch APIs
-- Document upload UI or persistent document ingestion pipeline
-- Vector database / reranker infrastructure
-- Long-term memory or cross-session personalization
+本计划暂不实现：
 
-## Plan File Structure
+- 真实的钉钉 OA 发起 API
+- 文档上传 UI 或完整的文档入库流程
+- 向量数据库 / 重排器基础设施
+- 长期记忆或跨会话个性化
 
-| Path | Responsibility |
+## 计划文件结构
+
+| 路径 | 职责 |
 | --- | --- |
-| `src/modules/intents/intent.types.ts` | New top-level assistant mode and `AssistantDecision` contract |
-| `src/modules/intents/intent-analyzer.ts` | Session-aware Decision Engine adapter |
-| `src/modules/intents/intent-analyzer.test.ts` | Decision Engine behavior, confidence, topic-shift tests |
-| `src/modules/intents/model-intent-classifier.ts` | LLM client for decision JSON |
-| `src/modules/intents/model-intent-classifier.test.ts` | Decision-model request/response normalization tests |
-| `src/modules/logging/conversation-log.types.ts` | Session-aware message log contract |
-| `src/modules/logging/conversation-log.repository.ts` | Store/retrieve recent turns for one session |
-| `src/modules/logging/conversation-log.repository.test.ts` | Log persistence and context retrieval tests |
-| `src/modules/logging/conversation-context.service.ts` | Build bounded recent context from stored logs |
-| `src/modules/logging/conversation-context.service.test.ts` | Context window, TTL, and topic reset tests |
-| `src/modules/knowledge/retriever.types.ts` | Unified knowledge provider input/output contracts |
-| `src/modules/knowledge/knowledge-card-retriever.ts` | Seed provider with `referenceLabel` and `relatedKeywords` |
-| `src/modules/knowledge/knowledge-card-retriever.test.ts` | Seed knowledge provider behavior |
-| `src/modules/knowledge/external-rag-retriever.ts` | External RAG provider contract adapter |
-| `src/modules/knowledge/external-rag-retriever.test.ts` | RAG normalization tests |
-| `src/modules/tasks/task-catalog.types.ts` | Enriched task provider contract |
-| `src/modules/tasks/task-catalog.service.ts` | Task provider with availability/action metadata |
-| `src/modules/tasks/task-catalog.service.test.ts` | Task provider resolution tests |
-| `src/modules/router/request-router.ts` | Coordinate tool execution from `AssistantDecision` |
-| `src/modules/router/request-router.test.ts` | Decision-to-tool orchestration tests |
-| `src/modules/assistant/assistant.types.ts` | Assistant execution result and response input shapes |
-| `src/modules/assistant/reply-builder.ts` | Emergency text fallback only, if generation fails |
-| `src/modules/assistant/reply-builder.test.ts` | Fallback-only text formatting tests |
-| `src/modules/assistant/response-generator.ts` | Natural-language response generation grounded in tool facts |
-| `src/modules/assistant/response-generator.test.ts` | Response prompt shaping and fallback tests |
-| `src/modules/assistant/assistant.service.ts` | Main orchestration: load context -> decide -> run tools -> generate reply |
-| `src/modules/assistant/assistant.service.test.ts` | End-to-end assistant orchestration tests |
-| `src/modules/assistant/create-assistant-runtime.ts` | Wire Decision Engine, providers, context service, generator |
-| `src/modules/dingtalk/stream-handler.ts` | Capture session identity and pass richer assistant input |
-| `src/modules/dingtalk/stream-handler.test.ts` | Stream session/context handoff tests |
-| `src/modules/dingtalk/stream-client.ts` | Keep stream entry aligned with the new runtime |
-| `src/modules/dingtalk/stream-client.test.ts` | Stream integration tests |
-| `src/app/api/dingtalk/webhook/route.ts` | HTTP debug route aligned with richer assistant input |
-| `src/app/api/dingtalk/webhook/route.test.ts` | Webhook integration tests |
-| `docs/dingtalk-stream-setup.md` | Runtime and debugging docs for the new model-led flow |
+| `src/modules/intents/intent.types.ts` | 新的顶层助手模式与 `AssistantDecision` 契约 |
+| `src/modules/intents/intent-analyzer.ts` | 带会话上下文的决策引擎适配层 |
+| `src/modules/intents/intent-analyzer.test.ts` | 决策行为、置信度、话题切换测试 |
+| `src/modules/intents/model-intent-classifier.ts` | 决策 JSON 的 LLM 客户端 |
+| `src/modules/intents/model-intent-classifier.test.ts` | 决策模型请求/响应归一化测试 |
+| `src/modules/logging/conversation-log.types.ts` | 会话消息日志契约 |
+| `src/modules/logging/conversation-log.repository.ts` | 存储/读取单会话最近几轮消息 |
+| `src/modules/logging/conversation-log.repository.test.ts` | 日志持久化与上下文读取测试 |
+| `src/modules/logging/conversation-context.service.ts` | 从日志中构建有边界的最近上下文 |
+| `src/modules/logging/conversation-context.service.test.ts` | 上下文窗口、TTL、话题重置测试 |
+| `src/modules/knowledge/retriever.types.ts` | 统一知识 provider 输入/输出契约 |
+| `src/modules/knowledge/knowledge-card-retriever.ts` | 带 `referenceLabel` 与 `relatedKeywords` 的样例知识 provider |
+| `src/modules/knowledge/knowledge-card-retriever.test.ts` | 样例知识 provider 行为测试 |
+| `src/modules/knowledge/external-rag-retriever.ts` | 外部 RAG provider 适配器 |
+| `src/modules/knowledge/external-rag-retriever.test.ts` | RAG 归一化测试 |
+| `src/modules/tasks/task-catalog.types.ts` | 增强后的事务 provider 契约 |
+| `src/modules/tasks/task-catalog.service.ts` | 带 availability/action 元数据的事务 provider |
+| `src/modules/tasks/task-catalog.service.test.ts` | 事务 provider 解析测试 |
+| `src/modules/router/request-router.ts` | 根据 `AssistantDecision` 协调工具执行 |
+| `src/modules/router/request-router.test.ts` | 决策到工具执行的编排测试 |
+| `src/modules/assistant/assistant.types.ts` | 助手执行结果与回复输入结构 |
+| `src/modules/assistant/reply-builder.ts` | 仅在生成失败时使用的紧急文本兜底 |
+| `src/modules/assistant/reply-builder.test.ts` | 兜底文本格式测试 |
+| `src/modules/assistant/response-generator.ts` | 基于工具事实生成自然语言回复 |
+| `src/modules/assistant/response-generator.test.ts` | 回复 prompt 与兜底测试 |
+| `src/modules/assistant/assistant.service.ts` | 主编排：加载上下文 -> 决策 -> 调工具 -> 生成回复 |
+| `src/modules/assistant/assistant.service.test.ts` | 助手端到端编排测试 |
+| `src/modules/assistant/create-assistant-runtime.ts` | 组装决策引擎、providers、上下文服务、回复生成器 |
+| `src/modules/dingtalk/stream-handler.ts` | 提取 session 身份并传入更丰富的 assistant 输入 |
+| `src/modules/dingtalk/stream-handler.test.ts` | Stream 会话/上下文透传测试 |
+| `src/modules/dingtalk/stream-client.ts` | 让 Stream 入口适配新运行时 |
+| `src/modules/dingtalk/stream-client.test.ts` | Stream 集成测试 |
+| `src/app/api/dingtalk/webhook/route.ts` | 对齐 richer assistant 输入的 HTTP 调试入口 |
+| `src/app/api/dingtalk/webhook/route.test.ts` | Webhook 集成测试 |
+| `docs/dingtalk-stream-setup.md` | 新模型主导链路的运行与调试文档 |
 
 ---
 
-### Task 1: Lock the new decision and provider contracts
+### 任务 1：锁定新的决策与 provider 契约
 
-**Files:**
-- Modify: `src/modules/intents/intent.types.ts`
-- Modify: `src/modules/assistant/assistant.types.ts`
-- Modify: `src/modules/knowledge/retriever.types.ts`
-- Modify: `src/modules/tasks/task-catalog.types.ts`
-- Test: `src/modules/assistant/reply-builder.test.ts`
-- Test: `src/modules/tasks/task-catalog.service.test.ts`
-- Test: `src/modules/knowledge/external-rag-retriever.test.ts`
+**文件：**
+- 修改：`src/modules/intents/intent.types.ts`
+- 修改：`src/modules/assistant/assistant.types.ts`
+- 修改：`src/modules/knowledge/retriever.types.ts`
+- 修改：`src/modules/tasks/task-catalog.types.ts`
+- 测试：`src/modules/assistant/reply-builder.test.ts`
+- 测试：`src/modules/tasks/task-catalog.service.test.ts`
+- 测试：`src/modules/knowledge/external-rag-retriever.test.ts`
 
-- [ ] **Step 1: Write the failing contract tests**
+- [ ] **步骤 1：先写失败的契约测试**
 
-Add assertions for the new shapes:
+为新结构补断言，例如：
 
 ```ts
 expectTypeOf<AssistantMode>().toEqualTypeOf<
@@ -93,14 +96,15 @@ expect(result.availability).toBe("available");
 expect(hits[0]?.referenceLabel).toBe("年假制度");
 ```
 
-- [ ] **Step 2: Run the focused tests and confirm they fail**
+- [ ] **步骤 2：运行定向测试，确认先失败**
 
-Run: `npm test -- --run src/modules/assistant/reply-builder.test.ts src/modules/tasks/task-catalog.service.test.ts src/modules/knowledge/external-rag-retriever.test.ts`
-Expected: FAIL because the current contracts still use the old intent enum and provider shapes.
+运行：`npm test -- --run src/modules/assistant/reply-builder.test.ts src/modules/tasks/task-catalog.service.test.ts src/modules/knowledge/external-rag-retriever.test.ts`
 
-- [ ] **Step 3: Write the minimal contract changes**
+预期：FAIL，因为当前契约还在使用旧意图枚举和旧 provider 结构。
 
-Update the types to introduce:
+- [ ] **步骤 3：写最小契约改动**
+
+更新类型，至少引入：
 
 ```ts
 export type AssistantMode = "knowledge" | "task" | "chat" | "clarify";
@@ -118,7 +122,7 @@ export type AssistantDecision = {
 };
 ```
 
-Also expand provider result contracts with:
+同时扩展 provider 返回结构：
 
 ```ts
 referenceLabel?: string;
@@ -128,12 +132,13 @@ availability?: "available" | "unavailable" | "unknown";
 availabilityReason?: string;
 ```
 
-- [ ] **Step 4: Re-run the focused tests and confirm they pass**
+- [ ] **步骤 4：重新运行定向测试，确认通过**
 
-Run: `npm test -- --run src/modules/assistant/reply-builder.test.ts src/modules/tasks/task-catalog.service.test.ts src/modules/knowledge/external-rag-retriever.test.ts`
-Expected: PASS
+运行：`npm test -- --run src/modules/assistant/reply-builder.test.ts src/modules/tasks/task-catalog.service.test.ts src/modules/knowledge/external-rag-retriever.test.ts`
 
-- [ ] **Step 5: Commit the contract lock-in**
+预期：PASS
+
+- [ ] **步骤 5：提交契约变更**
 
 ```bash
 git add src/modules/intents/intent.types.ts src/modules/assistant/assistant.types.ts src/modules/knowledge/retriever.types.ts src/modules/tasks/task-catalog.types.ts src/modules/assistant/reply-builder.test.ts src/modules/tasks/task-catalog.service.test.ts src/modules/knowledge/external-rag-retriever.test.ts
@@ -142,25 +147,25 @@ git commit -m "refactor: define contextual assistant contracts"
 
 ---
 
-### Task 2: Add session-scoped conversation context retrieval
+### 任务 2：增加按会话组织的上下文读取层
 
-**Files:**
-- Modify: `src/modules/logging/conversation-log.types.ts`
-- Modify: `src/modules/logging/conversation-log.repository.ts`
-- Modify: `src/modules/logging/conversation-log.repository.test.ts`
-- Create: `src/modules/logging/conversation-context.service.ts`
-- Create: `src/modules/logging/conversation-context.service.test.ts`
+**文件：**
+- 修改：`src/modules/logging/conversation-log.types.ts`
+- 修改：`src/modules/logging/conversation-log.repository.ts`
+- 修改：`src/modules/logging/conversation-log.repository.test.ts`
+- 创建：`src/modules/logging/conversation-context.service.ts`
+- 创建：`src/modules/logging/conversation-context.service.test.ts`
 
-- [ ] **Step 1: Write the failing context-window tests**
+- [ ] **步骤 1：先写失败的上下文窗口测试**
 
-Cover:
+覆盖这些场景：
 
-- append user/assistant turns with a `sessionId`
-- retrieve only the most recent N turns
-- drop expired turns when TTL is exceeded
-- never leak records from another session
+- 追加带 `sessionId` 的用户/助手消息
+- 只读取最近 N 轮消息
+- TTL 超时后过期消息不会再进入上下文
+- 不会读取其他 session 的消息
 
-Example:
+示例：
 
 ```ts
 expect(await service.loadRecentContext("session-a")).toEqual([
@@ -169,14 +174,15 @@ expect(await service.loadRecentContext("session-a")).toEqual([
 ]);
 ```
 
-- [ ] **Step 2: Run the tests and confirm they fail**
+- [ ] **步骤 2：运行测试，确认先失败**
 
-Run: `npm test -- --run src/modules/logging/conversation-log.repository.test.ts src/modules/logging/conversation-context.service.test.ts`
-Expected: FAIL because the repository cannot yet store speaker/response data or return bounded context.
+运行：`npm test -- --run src/modules/logging/conversation-log.repository.test.ts src/modules/logging/conversation-context.service.test.ts`
 
-- [ ] **Step 3: Extend the log record and add the context service**
+预期：FAIL，因为当前 repository 还不能存储 speaker/response 数据，也不能返回有边界的上下文。
 
-Expand the log contract with minimal fields:
+- [ ] **步骤 3：扩展日志结构并新增上下文服务**
+
+为日志契约补充最小字段：
 
 ```ts
 sessionId: string;
@@ -186,20 +192,21 @@ decisionMode?: AssistantMode;
 referenceLabel?: string | null;
 ```
 
-Then implement `conversation-context.service.ts` with:
+然后新增 `conversation-context.service.ts`，提供：
 
 ```ts
 loadRecentContext(sessionId: string, options?: { maxTurns?: number; ttlMs?: number })
 ```
 
-Keep the service purely synchronous on top of repository reads if possible.
+如果可以，尽量让这个服务只是在 repository 读取结果上做轻量处理。
 
-- [ ] **Step 4: Re-run the tests and confirm they pass**
+- [ ] **步骤 4：重新运行测试，确认通过**
 
-Run: `npm test -- --run src/modules/logging/conversation-log.repository.test.ts src/modules/logging/conversation-context.service.test.ts`
-Expected: PASS
+运行：`npm test -- --run src/modules/logging/conversation-log.repository.test.ts src/modules/logging/conversation-context.service.test.ts`
 
-- [ ] **Step 5: Commit the context layer**
+预期：PASS
+
+- [ ] **步骤 5：提交上下文层**
 
 ```bash
 git add src/modules/logging/conversation-log.types.ts src/modules/logging/conversation-log.repository.ts src/modules/logging/conversation-log.repository.test.ts src/modules/logging/conversation-context.service.ts src/modules/logging/conversation-context.service.test.ts
@@ -208,25 +215,25 @@ git commit -m "feat: add session conversation context service"
 
 ---
 
-### Task 3: Replace the old intent classifier with a model-led Decision Engine
+### 任务 3：用模型主导的决策引擎替换旧意图分类器
 
-**Files:**
-- Modify: `src/modules/intents/intent-analyzer.ts`
-- Modify: `src/modules/intents/intent-analyzer.test.ts`
-- Modify: `src/modules/intents/model-intent-classifier.ts`
-- Modify: `src/modules/intents/model-intent-classifier.test.ts`
-- Modify: `src/modules/assistant/create-assistant-runtime.ts`
+**文件：**
+- 修改：`src/modules/intents/intent-analyzer.ts`
+- 修改：`src/modules/intents/intent-analyzer.test.ts`
+- 修改：`src/modules/intents/model-intent-classifier.ts`
+- 修改：`src/modules/intents/model-intent-classifier.test.ts`
+- 修改：`src/modules/assistant/create-assistant-runtime.ts`
 
-- [ ] **Step 1: Write the failing Decision Engine tests**
+- [ ] **步骤 1：先写失败的决策引擎测试**
 
-Cover:
+覆盖：
 
 - `你是谁` -> `chat`
-- `那请假怎么申请` with prior chat context -> `task`
-- `那明天下雨吗？` after a task flow -> `chat` with `topicShift=true`
-- low-confidence ambiguous input -> `clarify`
+- 带上文闲聊上下文时，`那请假怎么申请` -> `task`
+- 在任务流程后突然问 `那明天下雨吗？` -> `chat` 且 `topicShift=true`
+- 低置信度模糊输入 -> `clarify`
 
-Example:
+示例：
 
 ```ts
 expect(result).toEqual({
@@ -239,14 +246,15 @@ expect(result).toEqual({
 });
 ```
 
-- [ ] **Step 2: Run the tests and confirm they fail**
+- [ ] **步骤 2：运行测试，确认先失败**
 
-Run: `npm test -- --run src/modules/intents/intent-analyzer.test.ts src/modules/intents/model-intent-classifier.test.ts`
-Expected: FAIL because the current implementation still returns the old five-intent enum.
+运行：`npm test -- --run src/modules/intents/intent-analyzer.test.ts src/modules/intents/model-intent-classifier.test.ts`
 
-- [ ] **Step 3: Rewrite the decision contracts and prompt**
+预期：FAIL，因为当前实现仍然返回旧的五类意图枚举。
 
-Change the model client so it requests decision JSON such as:
+- [ ] **步骤 3：重写决策契约与 prompt**
+
+调整模型客户端，让它请求这种决策 JSON：
 
 ```json
 {
@@ -259,16 +267,16 @@ Change the model client so it requests decision JSON such as:
 }
 ```
 
-Update the prompt to explicitly cover:
+同时在 prompt 里明确说明：
 
-- context-aware mode selection
-- topic-shift detection
-- low-confidence -> `clarify`
-- no legacy `handoff_request` / `unknown` labels
+- 要结合上下文做模式判断
+- 要识别话题切换
+- 低置信时进入 `clarify`
+- 不再允许旧的 `handoff_request` / `unknown` 标签
 
-- [ ] **Step 4: Keep only the smallest possible fallback**
+- [ ] **步骤 4：只保留最小兜底**
 
-If the model request fails or returns invalid JSON, return:
+如果模型请求失败，或返回不可解析 JSON，统一回：
 
 ```ts
 {
@@ -281,14 +289,15 @@ If the model request fails or returns invalid JSON, return:
 }
 ```
 
-Do not reintroduce keyword-first routing.
+不要重新引入关键词优先路由。
 
-- [ ] **Step 5: Re-run the tests and confirm they pass**
+- [ ] **步骤 5：重新运行测试，确认通过**
 
-Run: `npm test -- --run src/modules/intents/intent-analyzer.test.ts src/modules/intents/model-intent-classifier.test.ts`
-Expected: PASS
+运行：`npm test -- --run src/modules/intents/intent-analyzer.test.ts src/modules/intents/model-intent-classifier.test.ts`
 
-- [ ] **Step 6: Commit the Decision Engine rewrite**
+预期：PASS
+
+- [ ] **步骤 6：提交决策引擎重构**
 
 ```bash
 git add src/modules/intents/intent-analyzer.ts src/modules/intents/intent-analyzer.test.ts src/modules/intents/model-intent-classifier.ts src/modules/intents/model-intent-classifier.test.ts src/modules/assistant/create-assistant-runtime.ts
@@ -297,25 +306,25 @@ git commit -m "refactor: add model-led assistant decision engine"
 
 ---
 
-### Task 4: Unify seed knowledge and external RAG behind one provider shape
+### 任务 4：统一样例知识与外部 RAG 的 provider 结构
 
-**Files:**
-- Modify: `src/modules/knowledge/knowledge-card-retriever.ts`
-- Modify: `src/modules/knowledge/knowledge-card-retriever.test.ts`
-- Modify: `src/modules/knowledge/external-rag-retriever.ts`
-- Modify: `src/modules/knowledge/external-rag-retriever.test.ts`
-- Modify: `src/modules/knowledge/sample-knowledge-cards.ts`
-- Modify: `src/modules/assistant/create-assistant-runtime.ts`
+**文件：**
+- 修改：`src/modules/knowledge/knowledge-card-retriever.ts`
+- 修改：`src/modules/knowledge/knowledge-card-retriever.test.ts`
+- 修改：`src/modules/knowledge/external-rag-retriever.ts`
+- 修改：`src/modules/knowledge/external-rag-retriever.test.ts`
+- 修改：`src/modules/knowledge/sample-knowledge-cards.ts`
+- 修改：`src/modules/assistant/create-assistant-runtime.ts`
 
-- [ ] **Step 1: Write the failing provider tests**
+- [ ] **步骤 1：先写失败的 provider 测试**
 
-Cover:
+覆盖：
 
-- seed knowledge returns `referenceLabel`
-- misses return `relatedKeywords`
-- external RAG results normalize into the same shape
+- 样例知识命中时返回 `referenceLabel`
+- 无命中时返回 `relatedKeywords`
+- 外部 RAG 结果归一为同一结构
 
-Example:
+示例：
 
 ```ts
 expect(hits[0]).toMatchObject({
@@ -325,20 +334,21 @@ expect(hits[0]).toMatchObject({
 expect(result.relatedKeywords).toEqual(["年假折现", "离职补偿"]);
 ```
 
-- [ ] **Step 2: Run the tests and confirm they fail**
+- [ ] **步骤 2：运行测试，确认先失败**
 
-Run: `npm test -- --run src/modules/knowledge/knowledge-card-retriever.test.ts src/modules/knowledge/external-rag-retriever.test.ts`
-Expected: FAIL because providers do not yet expose the richer metadata.
+运行：`npm test -- --run src/modules/knowledge/knowledge-card-retriever.test.ts src/modules/knowledge/external-rag-retriever.test.ts`
 
-- [ ] **Step 3: Write the minimal provider changes**
+预期：FAIL，因为 provider 还没有暴露这些更丰富的元数据。
 
-Update the seed provider to:
+- [ ] **步骤 3：写最小 provider 改动**
 
-- map sample cards to `source: "seed"`
-- expose `referenceLabel`
-- compute simple `relatedKeywords` from card keywords/title when no hit is found
+更新样例知识 provider：
 
-Update the external RAG adapter to normalize:
+- 将样例卡映射成 `source: "seed"`
+- 返回 `referenceLabel`
+- 无命中时，基于 title / keywords 计算简单的 `relatedKeywords`
+
+更新外部 RAG 适配器，使其归一化结果至少包含：
 
 ```ts
 source: "rag";
@@ -346,12 +356,13 @@ referenceLabel: document.title;
 relatedKeywords?: [];
 ```
 
-- [ ] **Step 4: Re-run the tests and confirm they pass**
+- [ ] **步骤 4：重新运行测试，确认通过**
 
-Run: `npm test -- --run src/modules/knowledge/knowledge-card-retriever.test.ts src/modules/knowledge/external-rag-retriever.test.ts`
-Expected: PASS
+运行：`npm test -- --run src/modules/knowledge/knowledge-card-retriever.test.ts src/modules/knowledge/external-rag-retriever.test.ts`
 
-- [ ] **Step 5: Commit the knowledge provider unification**
+预期：PASS
+
+- [ ] **步骤 5：提交知识 provider 统一改动**
 
 ```bash
 git add src/modules/knowledge/knowledge-card-retriever.ts src/modules/knowledge/knowledge-card-retriever.test.ts src/modules/knowledge/external-rag-retriever.ts src/modules/knowledge/external-rag-retriever.test.ts src/modules/knowledge/sample-knowledge-cards.ts src/modules/assistant/create-assistant-runtime.ts
@@ -360,22 +371,22 @@ git commit -m "refactor: unify knowledge providers for contextual assistant"
 
 ---
 
-### Task 5: Enrich the task provider with action and availability metadata
+### 任务 5：为事务 provider 增加 action 与 availability 元数据
 
-**Files:**
-- Modify: `src/modules/tasks/task-catalog.service.ts`
-- Modify: `src/modules/tasks/task-catalog.service.test.ts`
-- Modify: `src/modules/tasks/sample-task-catalog.ts`
+**文件：**
+- 修改：`src/modules/tasks/task-catalog.service.ts`
+- 修改：`src/modules/tasks/task-catalog.service.test.ts`
+- 修改：`src/modules/tasks/sample-task-catalog.ts`
 
-- [ ] **Step 1: Write the failing task-provider tests**
+- [ ] **步骤 1：先写失败的事务 provider 测试**
 
-Cover:
+覆盖：
 
-- URL-backed task results include `actionType: "url"`
-- unavailable tasks return `availability: "unavailable"`
-- unavailable tasks surface a reason instead of a misleading entry
+- URL 型事务结果包含 `actionType: "url"`
+- 不可办理事务返回 `availability: "unavailable"`
+- 不可办理时返回明确原因，而不是给一个误导性的入口
 
-Example:
+示例：
 
 ```ts
 expect(result).toMatchObject({
@@ -384,14 +395,15 @@ expect(result).toMatchObject({
 });
 ```
 
-- [ ] **Step 2: Run the tests and confirm they fail**
+- [ ] **步骤 2：运行测试，确认先失败**
 
-Run: `npm test -- --run src/modules/tasks/task-catalog.service.test.ts`
-Expected: FAIL because the current provider cannot express action type or availability.
+运行：`npm test -- --run src/modules/tasks/task-catalog.service.test.ts`
 
-- [ ] **Step 3: Extend the sample catalog and resolver**
+预期：FAIL，因为当前 provider 还不能表达 action type 或 availability。
 
-Add minimal fields:
+- [ ] **步骤 3：扩展样例目录与解析逻辑**
+
+补充最小字段：
 
 ```ts
 actionType: "url";
@@ -399,14 +411,15 @@ availability: "available";
 availabilityReason?: undefined;
 ```
 
-Add at least one sample case for an unavailable task to prove the contract works.
+并至少增加一个不可办理的样例事务，用于证明契约可用。
 
-- [ ] **Step 4: Re-run the tests and confirm they pass**
+- [ ] **步骤 4：重新运行测试，确认通过**
 
-Run: `npm test -- --run src/modules/tasks/task-catalog.service.test.ts`
-Expected: PASS
+运行：`npm test -- --run src/modules/tasks/task-catalog.service.test.ts`
 
-- [ ] **Step 5: Commit the task provider enrichment**
+预期：PASS
+
+- [ ] **步骤 5：提交事务 provider 增强**
 
 ```bash
 git add src/modules/tasks/task-catalog.service.ts src/modules/tasks/task-catalog.service.test.ts src/modules/tasks/sample-task-catalog.ts
@@ -415,35 +428,36 @@ git commit -m "feat: add task availability metadata"
 
 ---
 
-### Task 6: Replace the switch router with decision-driven tool orchestration
+### 任务 6：将 switch 路由器替换为基于决策结果的工具编排
 
-**Files:**
-- Modify: `src/modules/router/request-router.ts`
-- Modify: `src/modules/router/request-router.test.ts`
-- Modify: `src/modules/assistant/assistant.types.ts`
-- Modify: `src/modules/assistant/assistant.service.ts`
-- Modify: `src/modules/assistant/assistant.service.test.ts`
-- Modify: `src/modules/handoff/handoff.service.ts`
-- Modify: `src/modules/handoff/handoff.service.test.ts`
+**文件：**
+- 修改：`src/modules/router/request-router.ts`
+- 修改：`src/modules/router/request-router.test.ts`
+- 修改：`src/modules/assistant/assistant.types.ts`
+- 修改：`src/modules/assistant/assistant.service.ts`
+- 修改：`src/modules/assistant/assistant.service.test.ts`
+- 修改：`src/modules/handoff/handoff.service.ts`
+- 修改：`src/modules/handoff/handoff.service.test.ts`
 
-- [ ] **Step 1: Write the failing orchestration tests**
+- [ ] **步骤 1：先写失败的编排测试**
 
-Cover:
+覆盖：
 
-- `mode=knowledge` + `needKnowledge=true` calls the knowledge provider
-- `mode=task` + `needTaskResolution=true` calls the task provider
-- `mode=chat` bypasses tools
-- `mode=clarify` bypasses tools and carries `clarifyQuestion`
-- knowledge/task misses return guidance metadata instead of legacy handoff-only outputs
+- `mode=knowledge` 且 `needKnowledge=true` 时调用知识 provider
+- `mode=task` 且 `needTaskResolution=true` 时调用事务 provider
+- `mode=chat` 时绕过工具
+- `mode=clarify` 时绕过工具并携带 `clarifyQuestion`
+- 知识/事务无命中时返回引导元数据，而不是旧版 handoff-only 输出
 
-- [ ] **Step 2: Run the tests and confirm they fail**
+- [ ] **步骤 2：运行测试，确认先失败**
 
-Run: `npm test -- --run src/modules/router/request-router.test.ts src/modules/assistant/assistant.service.test.ts src/modules/handoff/handoff.service.test.ts`
-Expected: FAIL because the current router still branches on the old intent enum and the service still expects a single query string.
+运行：`npm test -- --run src/modules/router/request-router.test.ts src/modules/assistant/assistant.service.test.ts src/modules/handoff/handoff.service.test.ts`
 
-- [ ] **Step 3: Write the minimal orchestration refactor**
+预期：FAIL，因为当前 router 仍然按旧意图枚举分支，service 也仍然只接收单个字符串 query。
 
-Reshape the router input/output to something like:
+- [ ] **步骤 3：写最小编排重构**
+
+把 router 的输入/输出整理成类似：
 
 ```ts
 type AssistantExecutionResult =
@@ -453,14 +467,15 @@ type AssistantExecutionResult =
   | { mode: "clarify"; clarifyQuestion: string };
 ```
 
-Keep `handoff.service.ts` only if it still provides a narrow, reusable “should we recommend a human next?” helper. If not, delete it from the runtime path.
+`handoff.service.ts` 只在它还能提供一个清晰可复用的“是否建议转人工”能力时保留；如果不再适合主链路，就从运行时路径移除。
 
-- [ ] **Step 4: Re-run the orchestration tests and confirm they pass**
+- [ ] **步骤 4：重新运行编排测试，确认通过**
 
-Run: `npm test -- --run src/modules/router/request-router.test.ts src/modules/assistant/assistant.service.test.ts src/modules/handoff/handoff.service.test.ts`
-Expected: PASS
+运行：`npm test -- --run src/modules/router/request-router.test.ts src/modules/assistant/assistant.service.test.ts src/modules/handoff/handoff.service.test.ts`
 
-- [ ] **Step 5: Commit the tool orchestration refactor**
+预期：PASS
+
+- [ ] **步骤 5：提交工具编排重构**
 
 ```bash
 git add src/modules/router/request-router.ts src/modules/router/request-router.test.ts src/modules/assistant/assistant.types.ts src/modules/assistant/assistant.service.ts src/modules/assistant/assistant.service.test.ts src/modules/handoff/handoff.service.ts src/modules/handoff/handoff.service.test.ts
@@ -469,59 +484,67 @@ git commit -m "refactor: route assistant flows from decision results"
 
 ---
 
-### Task 7: Add a response generation layer grounded in tool facts
+### 任务 7：增加基于工具事实的回复生成层
 
-**Files:**
-- Create: `src/modules/assistant/response-generator.ts`
-- Create: `src/modules/assistant/response-generator.test.ts`
-- Modify: `src/modules/assistant/reply-builder.ts`
-- Modify: `src/modules/assistant/reply-builder.test.ts`
-- Modify: `src/modules/assistant/assistant.service.ts`
-- Modify: `src/modules/assistant/create-assistant-runtime.ts`
+**文件：**
+- 创建：`src/modules/assistant/response-generator.ts`
+- 创建：`src/modules/assistant/response-generator.test.ts`
+- 修改：`src/modules/assistant/reply-builder.ts`
+- 修改：`src/modules/assistant/reply-builder.test.ts`
+- 修改：`src/modules/assistant/assistant.service.ts`
+- 修改：`src/modules/assistant/create-assistant-runtime.ts`
 
-- [ ] **Step 1: Write the failing response-generation tests**
+- [ ] **步骤 1：先写失败的回复生成测试**
 
-Cover:
+覆盖：
 
-- `chat` mode returns a natural model reply
-- `clarify` mode uses the model-provided clarify question
-- `knowledge` mode includes tool-grounded facts and source attribution
-- `task` mode includes the real entry/action metadata
-- generation failure falls back to a minimal local text formatter
+- `chat` 模式返回自然的模型回复
+- `clarify` 模式使用模型给出的澄清问题
+- `knowledge` 模式包含基于工具事实的回答与来源引用
+- `task` 模式包含真实入口 / action 元数据
+- 生成失败时会回退到最小本地文本兜底
 
-Example:
+示例：
 
 ```ts
 expect(reply).toContain("依据《年假规则》");
 expect(reply).toContain("https://oa.example.com/tasks/leave-application");
 ```
 
-- [ ] **Step 2: Run the tests and confirm they fail**
+- [ ] **步骤 2：运行测试，确认先失败**
 
-Run: `npm test -- --run src/modules/assistant/response-generator.test.ts src/modules/assistant/reply-builder.test.ts src/modules/assistant/assistant.service.test.ts`
-Expected: FAIL because there is no model-backed response generation layer yet.
+运行：`npm test -- --run src/modules/assistant/response-generator.test.ts src/modules/assistant/reply-builder.test.ts src/modules/assistant/assistant.service.test.ts`
 
-- [ ] **Step 3: Implement the smallest useful response generator**
+预期：FAIL，因为当前还没有模型驱动的回复生成层。
 
-Add a new module that:
+- [ ] **步骤 3：实现最小可用的 response generator**
 
-- accepts current message, recent context, `AssistantDecision`, and tool results
-- builds a prompt with hard boundaries around tool facts
-- asks the model for a final user-facing reply
-- falls back to `reply-builder.ts` only when generation fails
+新增模块，输入包括：
 
-Keep the grounding rules explicit in code:
+- 当前消息
+- 最近几轮上下文
+- `AssistantDecision`
+- 工具执行结果
+
+实现逻辑：
+
+- 构建带硬边界的 prompt，把 provider 结果作为事实输入
+- 让模型生成最终用户可见回复
+- 只有在生成失败时，才回退到 `reply-builder.ts`
+
+代码里要显式保留 grounding 注释，例如：
 
 ```ts
 // Facts from providers are authoritative; do not invent links or policies.
 ```
 
-- [ ] **Step 4: Re-run the response tests and confirm they pass**
+- [ ] **步骤 4：重新运行回复测试，确认通过**
 
-Run: `npm test -- --run src/modules/assistant/response-generator.test.ts src/modules/assistant/reply-builder.test.ts src/modules/assistant/assistant.service.test.ts`
-Expected: PASS
+运行：`npm test -- --run src/modules/assistant/response-generator.test.ts src/modules/assistant/reply-builder.test.ts src/modules/assistant/assistant.service.test.ts`
 
-- [ ] **Step 5: Commit the response-generation layer**
+预期：PASS
+
+- [ ] **步骤 5：提交回复生成层**
 
 ```bash
 git add src/modules/assistant/response-generator.ts src/modules/assistant/response-generator.test.ts src/modules/assistant/reply-builder.ts src/modules/assistant/reply-builder.test.ts src/modules/assistant/assistant.service.ts src/modules/assistant/create-assistant-runtime.ts
@@ -530,26 +553,26 @@ git commit -m "feat: generate contextual assistant replies from tool facts"
 
 ---
 
-### Task 8: Pass session identity through the channel and runtime entry points
+### 任务 8：让 Channel 与运行时入口透传 session 身份
 
-**Files:**
-- Modify: `src/modules/dingtalk/stream-handler.ts`
-- Modify: `src/modules/dingtalk/stream-handler.test.ts`
-- Modify: `src/modules/dingtalk/stream-client.ts`
-- Modify: `src/modules/dingtalk/stream-client.test.ts`
-- Modify: `src/app/api/dingtalk/webhook/route.ts`
-- Modify: `src/app/api/dingtalk/webhook/route.test.ts`
-- Modify: `docs/dingtalk-stream-setup.md`
+**文件：**
+- 修改：`src/modules/dingtalk/stream-handler.ts`
+- 修改：`src/modules/dingtalk/stream-handler.test.ts`
+- 修改：`src/modules/dingtalk/stream-client.ts`
+- 修改：`src/modules/dingtalk/stream-client.test.ts`
+- 修改：`src/app/api/dingtalk/webhook/route.ts`
+- 修改：`src/app/api/dingtalk/webhook/route.test.ts`
+- 修改：`docs/dingtalk-stream-setup.md`
 
-- [ ] **Step 1: Write the failing integration tests**
+- [ ] **步骤 1：先写失败的集成测试**
 
-Cover:
+覆盖：
 
-- stream messages pass a stable `sessionId` into the assistant
-- webhook debug calls can supply a test session id
-- the assistant reply path keeps working for knowledge/task/chat flows
+- Stream 消息会把稳定的 `sessionId` 传给 assistant
+- Webhook 调试调用可以显式提供测试 session id
+- 知识 / 事务 / 聊天链路在新输入结构下仍能正常回复
 
-Example:
+示例：
 
 ```ts
 expect(assistant.reply).toHaveBeenCalledWith({
@@ -558,26 +581,28 @@ expect(assistant.reply).toHaveBeenCalledWith({
 });
 ```
 
-- [ ] **Step 2: Run the tests and confirm they fail**
+- [ ] **步骤 2：运行测试，确认先失败**
 
-Run: `npm test -- --run src/modules/dingtalk/stream-handler.test.ts src/modules/dingtalk/stream-client.test.ts src/app/api/dingtalk/webhook/route.test.ts`
-Expected: FAIL because the current channel contracts still pass a plain string query.
+运行：`npm test -- --run src/modules/dingtalk/stream-handler.test.ts src/modules/dingtalk/stream-client.test.ts src/app/api/dingtalk/webhook/route.test.ts`
 
-- [ ] **Step 3: Thread the richer request shape through the entry points**
+预期：FAIL，因为当前 Channel 契约仍然只传一个字符串 query。
 
-Use the best available session identity for each entry:
+- [ ] **步骤 3：把 richer request shape 串到入口层**
 
-- stream: session-scoped webhook or other stable conversation identifier from the payload
-- webhook: request payload field or a deterministic debug fallback
+为每个入口选择最合适的会话身份：
 
-Document the new debugging shape in `docs/dingtalk-stream-setup.md`.
+- stream：优先使用会话级 webhook 或 payload 中更稳定的 conversation 标识
+- webhook：使用请求体字段，或提供确定性的调试兜底
 
-- [ ] **Step 4: Re-run the integration tests and confirm they pass**
+并在 `docs/dingtalk-stream-setup.md` 中说明新的调试请求结构。
 
-Run: `npm test -- --run src/modules/dingtalk/stream-handler.test.ts src/modules/dingtalk/stream-client.test.ts src/app/api/dingtalk/webhook/route.test.ts`
-Expected: PASS
+- [ ] **步骤 4：重新运行集成测试，确认通过**
 
-- [ ] **Step 5: Commit the channel wiring**
+运行：`npm test -- --run src/modules/dingtalk/stream-handler.test.ts src/modules/dingtalk/stream-client.test.ts src/app/api/dingtalk/webhook/route.test.ts`
+
+预期：PASS
+
+- [ ] **步骤 5：提交入口接线改动**
 
 ```bash
 git add src/modules/dingtalk/stream-handler.ts src/modules/dingtalk/stream-handler.test.ts src/modules/dingtalk/stream-client.ts src/modules/dingtalk/stream-client.test.ts src/app/api/dingtalk/webhook/route.ts src/app/api/dingtalk/webhook/route.test.ts docs/dingtalk-stream-setup.md
@@ -586,14 +611,14 @@ git commit -m "feat: wire session-aware contextual assistant entry points"
 
 ---
 
-### Task 9: Run the final verification sweep
+### 任务 9：执行最终验证
 
-**Files:**
-- Modify as needed: files touched by the earlier tasks only
+**文件：**
+- 仅在必要时修改：前面任务中已经触达的文件
 
-- [ ] **Step 1: Run the focused assistant suite**
+- [ ] **步骤 1：运行聚焦后的助手测试套件**
 
-Run:
+运行：
 
 ```bash
 npm test -- --run \
@@ -613,26 +638,26 @@ npm test -- --run \
   src/app/api/dingtalk/webhook/route.test.ts
 ```
 
-Expected: PASS
+预期：PASS
 
-- [ ] **Step 2: Run one manual smoke scenario**
+- [ ] **步骤 2：跑一次人工 smoke 测试**
 
-Run: `npm run stream:dev`
-Expected: the stream client boots cleanly with the model-enabled runtime, and logs show decision + response generation calls for a manual test message.
+运行：`npm run stream:dev`
 
-- [ ] **Step 3: Update docs if the smoke test reveals gaps**
+预期：Stream 客户端能在启用模型的新运行时下正常启动，并在手工测试消息时输出决策与回复生成日志。
 
-Only touch:
+- [ ] **步骤 3：如果 smoke 测试暴露文档缺口，再更新文档**
+
+只允许修改：
 
 - `docs/dingtalk-stream-setup.md`
 - `README.md`
 
-if the implemented runtime shape or debug steps differ from the plan.
+前提是：实际实现与计划中的运行时结构或调试方式出现差异。
 
-- [ ] **Step 4: Commit the verification cleanup**
+- [ ] **步骤 4：提交验证收尾改动**
 
 ```bash
 git add docs/dingtalk-stream-setup.md README.md
 git commit -m "docs: finalize contextual assistant runtime notes"
 ```
-
