@@ -23,6 +23,9 @@ function buildFallbackResolution(): TaskCatalogResolution {
     description: "暂未找到可直接跳转的入口，请联系兜底联系人确认办理方式。",
     preparations: [],
     entryUrl: undefined,
+    actionType: undefined,
+    availability: "unknown",
+    availabilityReason: "当前未命中可用的事务配置。",
     fallbackContact: DEFAULT_FALLBACK_CONTACT
   };
 }
@@ -38,6 +41,11 @@ function mapItemToResolution(
     description: item.description,
     preparations: [...item.preparations],
     entryUrl: item.entryUrl,
+    // actionType 和 availability 先支持最小契约：
+    // 目录里显式给了就复用；没给时按“有 URL 就可用”推一个保守默认值。
+    actionType: item.actionType ?? (item.entryUrl ? "url" : undefined),
+    availability: item.availability ?? "available",
+    availabilityReason: item.availabilityReason,
     fallbackContact: item.fallbackContact
   };
 }

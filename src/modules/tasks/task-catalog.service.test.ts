@@ -19,6 +19,8 @@ describe("TaskCatalogService", () => {
 
     expect(result.title).toBe("会议室预约");
     expect(result.entryUrl).toMatch(/^https:\/\//);
+    expect(result.actionType).toBe("url");
+    expect(result.availability).toBe("available");
   });
 
   it("可以只按 taskType 解析事务", () => {

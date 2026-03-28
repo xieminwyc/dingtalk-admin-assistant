@@ -37,7 +37,8 @@ describe("ExternalRagRetriever", () => {
         department: "HR",
         score: 0.88,
         source: "rag",
-        url: "https://example.com/hr/annual-leave"
+        url: "https://example.com/hr/annual-leave",
+        referenceLabel: "年假规则"
       }
     ]);
   });

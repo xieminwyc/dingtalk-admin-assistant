@@ -13,6 +13,10 @@ export type KnowledgeHit = {
   score: number;
   source: "faq" | "knowledge_card" | "rag";
   url?: string;
+  // 这个字段给后续“引用溯源”预留边界，便于把命中的制度名或文档名展示给用户。
+  referenceLabel?: string;
+  // 这个字段先作为可选契约存在，后续 provider 会逐步补上更智能的引导关键词。
+  relatedKeywords?: string[];
 };
 
 export type KnowledgeSearchOptions = {

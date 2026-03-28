@@ -1,5 +1,6 @@
 import { describe, expect, expectTypeOf, it } from "vitest";
 
+import type { AssistantMode } from "../intents/intent.types";
 import type {
   AssistantClarificationResolution,
   AssistantKnowledgeResolution,
@@ -7,6 +8,9 @@ import type {
 } from "./assistant.types";
 import { buildAssistantReply } from "./reply-builder";
 
+expectTypeOf<AssistantMode>().toEqualTypeOf<
+  "knowledge" | "task" | "chat" | "clarify"
+>();
 expectTypeOf<AssistantKnowledgeResolution["intent"]>().toEqualTypeOf<"knowledge_query">();
 expectTypeOf<AssistantTaskResolution["intent"]>().toEqualTypeOf<"task_request">();
 expectTypeOf<AssistantClarificationResolution["intent"]>().toEqualTypeOf<"unknown">();

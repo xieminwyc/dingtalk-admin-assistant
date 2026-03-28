@@ -48,7 +48,10 @@ export class ExternalRagRetriever implements KnowledgeRetriever {
         department: normalizedDepartment,
         score: document.score ?? 0.8,
         source: "rag",
-        url: document.url
+        url: document.url,
+        // 外部 RAG 一期先直接用标题当引用标签，后续如果 provider 提供更细的 citation，
+        // 可以在不改上层调用方的前提下继续扩展。
+        referenceLabel: document.title
       };
     });
   }

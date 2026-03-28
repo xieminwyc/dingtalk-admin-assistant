@@ -12,6 +12,9 @@ export type TaskCatalogItem = {
   keywords: string[];
   preparations: string[];
   entryUrl?: string;
+  actionType?: "url" | "api";
+  availability?: "available" | "unavailable" | "unknown";
+  availabilityReason?: string;
   fallbackContact: string;
 };
 
@@ -26,5 +29,8 @@ export type TaskCatalogResolution = {
   description: string;
   preparations: string[];
   entryUrl?: string;
+  actionType?: "url" | "api";
+  availability?: "available" | "unavailable" | "unknown";
+  availabilityReason?: string;
   fallbackContact: string;
 };
