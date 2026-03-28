@@ -1,3 +1,6 @@
+import { existsSync } from "node:fs";
+import { resolve } from "node:path";
+
 import { z } from "zod";
 
 import { createAssistantService } from "@/modules/assistant/assistant.service";
@@ -15,6 +18,7 @@ import {
   type ExternalRagProvider
 } from "@/modules/knowledge/external-rag-retriever";
 import { KnowledgeCardRetriever } from "@/modules/knowledge/knowledge-card-retriever";
+import { LocalDocumentRetriever } from "@/modules/knowledge/local-document-retriever";
 import { sampleKnowledgeCards } from "@/modules/knowledge/sample-knowledge-cards";
 import type { KnowledgeRetriever } from "@/modules/knowledge/retriever.types";
 import { sampleTaskCatalog } from "@/modules/tasks/sample-task-catalog";
@@ -25,6 +29,7 @@ type RuntimeEnvInput = Partial<Record<string, string | undefined>>;
 type CreateAssistantRuntimeInput = {
   env?: RuntimeEnvInput;
   fetch?: typeof fetch;
+  knowledgeDocsDir?: string;
 };
 
 type AssistantRuntime = {
@@ -85,12 +90,33 @@ function buildKnowledgeFallbackQueries(query: string) {
   return [...candidates].filter(Boolean);
 }
 
-function createLocalKnowledgeRetriever(): KnowledgeRetriever {
+function buildDefaultKnowledgeDocsDir() {
+  return resolve(process.cwd(), "docs/knowledge");
+}
+
+function createLocalKnowledgeRetriever(input?: { knowledgeDocsDir?: string }): KnowledgeRetriever {
   const cardRetriever = new KnowledgeCardRetriever(sampleKnowledgeCards);
+  const knowledgeDocsDir = input?.knowledgeDocsDir ?? buildDefaultKnowledgeDocsDir();
+  const documentRetriever =
+    existsSync(knowledgeDocsDir) ? new LocalDocumentRetriever(knowledgeDocsDir) : null;
 
   return {
     async search(query, options) {
       let fallbackKeywords: string[] = [];
+
+      if (documentRetriever) {
+        // 本地联调阶段优先读 docs/knowledge 里的真实制度文档，
+        // 只有文档没命中时，才退回样例知识卡，方便你逐步替换掉旧 demo 数据。
+        const documentResult = await documentRetriever.search(query, options);
+
+        if (documentResult.hits.length > 0) {
+          return documentResult;
+        }
+
+        if (documentResult.relatedKeywords.length > 0) {
+          fallbackKeywords = documentResult.relatedKeywords;
+        }
+      }
 
       for (const candidate of buildKnowledgeFallbackQueries(query)) {
         const result = await cardRetriever.search(candidate, options);
@@ -185,7 +211,9 @@ export function createAssistantRuntime(
   input: CreateAssistantRuntimeInput = {}
 ): AssistantRuntime {
   const env = parseRuntimeEnv(input.env);
-  const localRetriever = createLocalKnowledgeRetriever();
+  const localRetriever = createLocalKnowledgeRetriever({
+    knowledgeDocsDir: input.knowledgeDocsDir
+  });
   const taskCatalog = new TaskCatalogService(sampleTaskCatalog);
   const conversationLogger = new ConversationLogRepository();
   const conversationContextService = new ConversationContextService(

@@ -11,7 +11,7 @@ export type KnowledgeHit = {
   scope?: string;
   department?: KnowledgeDepartment;
   score: number;
-  source: "faq" | "seed" | "rag";
+  source: "faq" | "seed" | "rag" | "document";
   url?: string;
   // 这个字段给后续“引用溯源”预留边界，便于把命中的制度名或文档名展示给用户。
   referenceLabel?: string;
