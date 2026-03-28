@@ -137,15 +137,19 @@
 
 建议输入至少包含：
 
+- `sessionId`
 - 当前用户消息
 - 最近 3 到 6 轮用户/助手消息
 - 可选的简短对话摘要
+- 上下文过期时间或轮次上限
 
 设计要求：
 
 - 决策层读取上下文，而不是只读单句
 - 回复生成层也读取上下文，以便承接“那这个呢”“那我要怎么申请”
 - 上下文长度需要可控，避免 token 无限增长
+- 需要显式定义上下文有效期，避免用户隔很久后一句新话被旧话题误导
+- 需要保留会话级唯一标识，防止后续引入记忆或日志后发生串话
 
 首版可以先使用最近几轮原始消息，不强依赖摘要算法。
 
@@ -166,8 +170,11 @@ Decision Engine 是新的核心模块，由大模型主导。
 ```ts
 type AssistantDecision = {
   mode: "knowledge" | "task" | "chat" | "clarify";
+  intentConfidence: number;
   needKnowledge: boolean;
   needTaskResolution: boolean;
+  topicShift: boolean;
+  contextBreakConfidence?: number;
   clarifyQuestion?: string;
   knowledgeHint?: string;
   taskHint?: string;
@@ -178,10 +185,16 @@ type AssistantDecision = {
 
 - `mode`
   - 本轮主模式
+- `intentConfidence`
+  - 对当前主模式判断的置信度，低分时更容易进入 `clarify`
 - `needKnowledge`
   - 是否调用知识工具
 - `needTaskResolution`
   - 是否调用事务工具
+- `topicShift`
+  - 是否检测到当前用户已经明显跳出上一个话题
+- `contextBreakConfidence`
+  - 话题切换置信度，用于处理“意图惯性”
 - `clarifyQuestion`
   - 如果是 `clarify`，建议模型给出更自然的补问
 - `knowledgeHint`
@@ -194,6 +207,8 @@ type AssistantDecision = {
 - 由模型直接决策
 - 不再由本地关键词规则主导
 - 仅在模型接口失败或返回结构完全不可用时，进入轻量澄清降级
+- 当 `topicShift=true` 且切换置信度足够高时，强制重置上轮工具链偏向，避免把“闲聊/新问题”误吸回旧主题
+- 当 `intentConfidence` 低于阈值时，优先进入 `clarify`
 
 ### 5.4 Knowledge Tool Layer
 
@@ -217,7 +232,9 @@ type KnowledgeSearchResult = {
     source: "seed" | "document" | "rag";
     score: number;
     url?: string;
+    referenceLabel?: string;
   }>;
+  relatedKeywords?: string[];
 };
 ```
 
@@ -235,6 +252,20 @@ type KnowledgeSearchResult = {
 - 对决策层和回复层隐藏底层来源差异
 - 返回统一结构
 - 支持先本地、后文档、再外部 RAG 的渐进式升级
+- 在可能的情况下保留可展示给用户的引用标签，例如制度名、文档标题或来源链接
+- 在检索无果时返回 `relatedKeywords`，便于回复层给出“你是不是想问 A / B”的引导
+
+知识层还需要支持一个受约束的“轻推导”原则：
+
+- 工具层负责提供事实
+- 回复层允许基于这些事实做简单算术和有限逻辑整理
+- 不允许脱离事实来源进行开放式推测
+
+例如：
+
+- 已检索到“剩余年假 5 天”
+- 用户问“请 3 天后还剩多少”
+- 回复层可以基于已知事实做简单减法表达，而不是机械复述规则
 
 ### 5.5 Task Tool Layer
 
@@ -264,6 +295,9 @@ type TaskResolveResult = {
   title: string;
   description: string;
   entryUrl?: string;
+  actionType?: "url" | "api";
+  availability?: "available" | "unavailable" | "unknown";
+  availabilityReason?: string;
   preparations: string[];
   fallbackContact?: string;
   nextAction?: string;
@@ -274,6 +308,12 @@ type TaskResolveResult = {
 
 - 从“返回入口链接”升级到“发起钉钉 OA 流程”
 - 从“静态目录”升级到“实时事务服务”
+
+补充要求：
+
+- `availability` 用于表达“当前是否可办理”
+- 当事务受时间窗、权限、状态机或业务周期影响时，应优先由 provider 提供明确状态
+- 当 `availability=unavailable` 时，回复层应优先解释原因和下一步，而不是继续给无效入口
 
 ### 5.6 Response Generator
 
@@ -305,6 +345,8 @@ Response Generator 负责最终面向用户的自然语言输出。
 
 - 制度事实、链接、准备项必须来自工具结果，不允许模型虚构
 - 模型负责解释和组织语言，不负责编造事实
+- 若工具结果提供引用来源，回复中应优先显式标注来源，提升可信度
+- 回复生成前应经过最小隐私与敏感信息检查，避免把不应暴露的上下文原样带出
 
 ## 6. 数据流
 
@@ -352,6 +394,7 @@ Response Generator 负责最终面向用户的自然语言输出。
 - 主模式必须允许逐轮切换
 - 上下文必须作为决策输入
 - 不要求用户重新构造完整句子
+- 需要显式防范“意图惯性”，避免上轮主题强行污染本轮判断
 
 ## 7. 降级与错误处理
 
@@ -375,6 +418,11 @@ Response Generator 负责最终面向用户的自然语言输出。
   - 暂时没检索到明确答案
   - 可建议补充关键词
   - 必要时建议联系对应部门
+- 若 provider 返回 `relatedKeywords`，应优先将其转化为引导式追问
+
+示例：
+
+- “我暂时没找到关于‘年假补偿’的明确规定。你是想了解‘年假折现’，还是‘离职补偿’？”
 
 ### 7.3 Task Tool 无命中
 
@@ -385,6 +433,16 @@ Response Generator 负责最终面向用户的自然语言输出。
   - 当前还没匹配到准确入口
   - 可以补充要办理的事项
   - 必要时建议联系对应部门
+- 若 provider 返回相近事务关键词，也应转化为引导式追问，而不是只说“没找到”
+
+### 7.4 隐私与安全边界
+
+虽然本阶段不建设完整记忆系统，但仍需明确以下边界：
+
+- 上下文只读取当前会话的消息，不跨会话引用
+- 若后续引入日志、记忆或用户画像，默认不进入回复生成 prompt，除非显式授权
+- 回复层需要最小化敏感信息透传
+- 任何内部代号、他人咨询内容、未公开信息都不能因上下文污染被带出
 
 ## 8. Prompt 设计原则
 
@@ -399,6 +457,8 @@ Response Generator 负责最终面向用户的自然语言输出。
 - 明确 `chat` 包含闲聊、打招呼、能力询问
 - 明确 `clarify` 只在信息不足时使用
 - 明确当对话中出现承接关系时，必须结合上下文判断
+- 明确要求模型识别话题是否已经明显切换
+- 明确要求模型在低置信时不要硬判，应转入 `clarify`
 
 ### 8.2 Response Prompt
 
@@ -409,6 +469,8 @@ Response Generator 负责最终面向用户的自然语言输出。
 - 对 `task` 回复强调“说明办理方式并引用真实入口”
 - 对 `chat` 回复强调自然、简洁、有助手边界
 - 对 `clarify` 回复强调只问当前最关键的补充问题
+- 若存在知识来源、制度标题、文档标题或链接，应优先带上引用溯源
+- 允许做受约束的轻推导，但必须显式基于工具事实
 
 ## 9. 对现有代码的重构方向
 
@@ -477,6 +539,13 @@ Response Generator 负责最终面向用户的自然语言输出。
 4. Response Generator 测试
    - 工具结果注入后可生成自然回复
    - 不允许凭空编造入口和制度信息
+   - 无命中时能给出指引性兜底而不是机械失败提示
+5. 安全边界测试
+   - 不跨会话引用上下文
+   - 敏感信息不被原样泄露
+6. 置信度与话题切换测试
+   - `intentConfidence` 低分进入 `clarify`
+   - 明显话题切换时触发 `topicShift`
 
 ## 11. 迁移策略
 
@@ -488,6 +557,7 @@ Response Generator 负责最终面向用户的自然语言输出。
 4. 将事务工具统一为 provider 层
 5. 将 `reply-builder` 升级为模型驱动的自然回复生成
 6. 最后再接入上传文档与外部 RAG
+7. 在能力稳定后，再评估 Decision 与 Tool 的并行预取优化
 
 这样可以避免一次性重写过多模块，同时能尽快验证“连续上下文 + 模型主导决策”的核心体验。
 
@@ -505,3 +575,10 @@ Response Generator 负责最终面向用户的自然语言输出。
 1. 上传文档作为知识来源
 2. 外部 RAG 检索接入
 3. 钉钉 OA 等真实事务执行能力接入
+
+为进一步提升可靠性，本设计额外吸收以下原则：
+
+1. 引入 `intentConfidence` 和 `topicShift`，处理连续对话中的意图惯性
+2. 引入知识引用溯源和 `relatedKeywords`，提升可解释性与引导能力
+3. 引入事务 `availability`，避免给出不可办理的无效入口
+4. 引入隐私与安全边界，避免上下文污染导致的信息泄露
