@@ -3,7 +3,8 @@ export type TaskCatalogTaskType =
   | "leave_application"
   | "expense_application"
   | "meeting_room_booking"
-  | "permission_access";
+  | "permission_access"
+  | "office_supply_purchase";
 
 export type TaskCatalogItem = {
   taskType: TaskCatalogTaskType;
@@ -12,6 +13,9 @@ export type TaskCatalogItem = {
   keywords: string[];
   preparations: string[];
   entryUrl?: string;
+  actionType?: "url" | "api";
+  availability?: "available" | "unavailable" | "unknown";
+  availabilityReason?: string;
   fallbackContact: string;
 };
 
@@ -26,5 +30,8 @@ export type TaskCatalogResolution = {
   description: string;
   preparations: string[];
   entryUrl?: string;
+  actionType?: "url" | "api";
+  availability?: "available" | "unavailable" | "unknown";
+  availabilityReason?: string;
   fallbackContact: string;
 };

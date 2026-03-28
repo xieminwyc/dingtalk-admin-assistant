@@ -1,11 +1,13 @@
 import { z } from "zod";
 
 import { createAssistantService } from "@/modules/assistant/assistant.service";
+import { createResponseGenerator } from "@/modules/assistant/response-generator";
 import { createIntentAnalyzer } from "@/modules/intents/intent-analyzer";
 import {
   createModelIntentClassifier,
   type ModelIntentClassifier
 } from "@/modules/intents/model-intent-classifier";
+import { ConversationContextService } from "@/modules/logging/conversation-context.service";
 import { ConversationLogRepository } from "@/modules/logging/conversation-log.repository";
 import {
   ExternalRagRetriever,
@@ -29,10 +31,12 @@ type AssistantRuntime = {
   assistant: ReturnType<typeof createAssistantService>;
   analyzer: ReturnType<typeof createIntentAnalyzer>;
   modelClassifier?: ModelIntentClassifier;
+  responseGenerator?: ReturnType<typeof createResponseGenerator>;
   localRetriever: KnowledgeRetriever;
   externalRetriever?: KnowledgeRetriever;
   taskCatalog: TaskCatalogService;
   conversationLogger: ConversationLogRepository;
+  conversationContextService: ConversationContextService;
 };
 
 const runtimeEnvSchema = z.object({
@@ -86,15 +90,24 @@ function createLocalKnowledgeRetriever(): KnowledgeRetriever {
 
   return {
     async search(query, options) {
-      for (const candidate of buildKnowledgeFallbackQueries(query)) {
-        const hits = await cardRetriever.search(candidate, options);
+      let fallbackKeywords: string[] = [];
 
-        if (hits.length > 0) {
-          return hits;
+      for (const candidate of buildKnowledgeFallbackQueries(query)) {
+        const result = await cardRetriever.search(candidate, options);
+
+        if (result.hits.length > 0) {
+          return result;
+        }
+
+        if (fallbackKeywords.length === 0 && result.relatedKeywords.length > 0) {
+          fallbackKeywords = result.relatedKeywords;
         }
       }
 
-      return [];
+      return {
+        hits: [],
+        relatedKeywords: fallbackKeywords
+      };
     }
   };
 }
@@ -175,9 +188,20 @@ export function createAssistantRuntime(
   const localRetriever = createLocalKnowledgeRetriever();
   const taskCatalog = new TaskCatalogService(sampleTaskCatalog);
   const conversationLogger = new ConversationLogRepository();
+  const conversationContextService = new ConversationContextService(
+    conversationLogger
+  );
 
   const modelClassifier = isModelClassifierEnabled(env)
     ? createModelIntentClassifier({
+        apiKey: env.siliconflowApiKey!,
+        baseUrl: env.siliconflowBaseUrl!,
+        model: env.siliconflowModel!,
+        fetch: input.fetch
+      })
+    : undefined;
+  const responseGenerator = isModelClassifierEnabled(env)
+    ? createResponseGenerator({
         apiKey: env.siliconflowApiKey!,
         baseUrl: env.siliconflowBaseUrl!,
         model: env.siliconflowModel!,
@@ -202,9 +226,11 @@ export function createAssistantRuntime(
     localRetriever,
     analyzer,
     modelClassifier,
+    responseGenerator,
     externalRetriever,
     taskCatalog,
     conversationLogger,
+    conversationContextService,
     // handoff 目前仍由 request-router 内部调用 `evaluateHandoff`，
     // 这里不额外包装成新 service，避免为了“组装完整”引入空抽象。
     assistant: createAssistantService({
@@ -212,7 +238,10 @@ export function createAssistantRuntime(
       taskCatalog,
       externalRetriever,
       enableExternalKnowledge: Boolean(externalRetriever),
-      analyzer
+      analyzer,
+      conversationLogger,
+      conversationContextService,
+      responseGenerator
     })
   };
 }

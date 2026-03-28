@@ -2,7 +2,10 @@ import { describe, expect, it, vi } from "vitest";
 
 import { createRequestRouter } from "./request-router";
 import type { IntentAnalysis } from "../intents/intent-analyzer";
-import type { KnowledgeRetriever } from "../knowledge/retriever.types";
+import type {
+  KnowledgeRetriever,
+  KnowledgeSearchResult
+} from "../knowledge/retriever.types";
 import type { TaskCatalogResolution } from "../tasks/task-catalog.types";
 
 function createTaskCatalogStub(
@@ -12,6 +15,7 @@ function createTaskCatalogStub(
     description: "用于发起请假审批，适合年假、病假、事假等场景。",
     preparations: ["确认请假日期", "准备请假类型", "提前和直属主管沟通"],
     entryUrl: "https://oa.example.com/tasks/leave-application",
+    availability: "available",
     fallbackContact: "HR 同学"
   }
 ) {
@@ -22,24 +26,47 @@ function createTaskCatalogStub(
 
 function buildLocalKnowledgeRetriever(): KnowledgeRetriever {
   return {
-    search: vi.fn().mockResolvedValue([
-      {
-        id: "card-1",
-        title: "年假规则",
-        question: "年假规则是什么",
-        answer: "年假按司龄计算。",
-        scope: "适用于正式员工",
-        score: 0.92,
-        source: "knowledge_card"
-      }
-    ])
+    search: vi.fn().mockResolvedValue({
+      hits: [
+        {
+          id: "card-1",
+          title: "年假规则",
+          question: "年假规则是什么",
+          answer: "年假按司龄计算。",
+          scope: "适用于正式员工",
+          score: 0.92,
+          source: "seed",
+          referenceLabel: "年假规则"
+        }
+      ],
+      relatedKeywords: []
+    } satisfies KnowledgeSearchResult)
+  };
+}
+
+function emptyKnowledgeResult(): KnowledgeSearchResult {
+  return {
+    hits: [],
+    relatedKeywords: []
   };
 }
 
 function buildIntent(intent: IntentAnalysis["intent"]): IntentAnalysis {
   return {
+    mode:
+      intent === "knowledge_query"
+        ? "knowledge"
+        : intent === "task_request"
+          ? "task"
+          : intent === "smalltalk"
+            ? "chat"
+            : "clarify",
+    intentConfidence: 0.9,
+    needKnowledge: intent === "knowledge_query",
+    needTaskResolution: intent === "task_request",
+    topicShift: false,
     intent,
-    source: "rule"
+    source: "model"
   };
 }
 
@@ -47,7 +74,7 @@ describe("createRequestRouter", () => {
   it("routes knowledge_query to knowledge resolution", async () => {
     const localRetriever = buildLocalKnowledgeRetriever();
     const externalRetriever: KnowledgeRetriever = {
-      search: vi.fn().mockResolvedValue([])
+      search: vi.fn().mockResolvedValue(emptyKnowledgeResult())
     };
     const taskCatalog = createTaskCatalogStub();
     const router = createRequestRouter({
@@ -66,6 +93,7 @@ describe("createRequestRouter", () => {
     expect(resolution.intent).toBe("knowledge_query");
     if (resolution.kind === "knowledge") {
       expect(resolution.answer).toContain("司龄");
+      expect(resolution.referenceLabel).toBe("年假规则");
     }
     expect(localRetriever.search).toHaveBeenCalledWith("年假规则是什么");
     expect(externalRetriever.search).not.toHaveBeenCalled();
@@ -73,7 +101,7 @@ describe("createRequestRouter", () => {
 
   it("routes task_request to task resolution", async () => {
     const localRetriever: KnowledgeRetriever = {
-      search: vi.fn().mockResolvedValue([])
+      search: vi.fn().mockResolvedValue(emptyKnowledgeResult())
     };
     const taskCatalog = createTaskCatalogStub();
     const router = createRequestRouter({
@@ -92,6 +120,7 @@ describe("createRequestRouter", () => {
     });
     if (resolution.kind === "task") {
       expect(resolution.entry).toContain("https://oa.example.com/tasks/leave-application");
+      expect(resolution.availability).toBe("available");
     }
     expect(taskCatalog.resolve).toHaveBeenCalledWith({ query: "我要请假" });
     expect(localRetriever.search).not.toHaveBeenCalled();
@@ -99,7 +128,7 @@ describe("createRequestRouter", () => {
 
   it("passes structured taskType to task resolver when provided", async () => {
     const localRetriever: KnowledgeRetriever = {
-      search: vi.fn().mockResolvedValue([])
+      search: vi.fn().mockResolvedValue(emptyKnowledgeResult())
     };
     const taskCatalog = createTaskCatalogStub({
       taskType: "expense_application",
@@ -130,9 +159,9 @@ describe("createRequestRouter", () => {
     }
   });
 
-  it("routes handoff_request to handoff resolution", async () => {
+  it("no longer treats handoff as a top-level route in contextual mode", async () => {
     const localRetriever: KnowledgeRetriever = {
-      search: vi.fn().mockResolvedValue([])
+      search: vi.fn().mockResolvedValue(emptyKnowledgeResult())
     };
     const router = createRequestRouter({
       localRetriever,
@@ -145,16 +174,16 @@ describe("createRequestRouter", () => {
     });
 
     expect(resolution).toEqual({
-      kind: "handoff",
-      intent: "handoff_request",
-      reason: "这类需求更适合行政同学直接处理，请联系行政同学。"
+      kind: "clarification",
+      intent: "unknown",
+      prompt: "我可以帮你查制度说明，或告诉你办理入口。请再具体描述一下问题。"
     });
     expect(localRetriever.search).not.toHaveBeenCalled();
   });
 
   it("routes smalltalk to a lightweight reply", async () => {
     const localRetriever: KnowledgeRetriever = {
-      search: vi.fn().mockResolvedValue([])
+      search: vi.fn().mockResolvedValue(emptyKnowledgeResult())
     };
     const router = createRequestRouter({
       localRetriever,
@@ -176,7 +205,7 @@ describe("createRequestRouter", () => {
 
   it("routes unknown to clarification", async () => {
     const localRetriever: KnowledgeRetriever = {
-      search: vi.fn().mockResolvedValue([])
+      search: vi.fn().mockResolvedValue(emptyKnowledgeResult())
     };
     const router = createRequestRouter({
       localRetriever,
@@ -194,6 +223,114 @@ describe("createRequestRouter", () => {
       prompt: "我可以帮你查制度说明，或告诉你办理入口。请再具体描述一下问题。"
     });
     expect(localRetriever.search).not.toHaveBeenCalled();
+  });
+
+  it("uses decision mode instead of the bridged legacy intent when routing", async () => {
+    const localRetriever = buildLocalKnowledgeRetriever();
+    const router = createRequestRouter({
+      localRetriever,
+      taskCatalog: createTaskCatalogStub()
+    });
+
+    const resolution = await router.route({
+      query: "年假规则是什么",
+      intent: {
+        ...buildIntent("unknown"),
+        mode: "knowledge",
+        needKnowledge: true
+      }
+    });
+
+    expect(resolution.kind).toBe("knowledge");
+    expect(localRetriever.search).toHaveBeenCalledWith("年假规则是什么");
+  });
+
+  it("uses the model-provided clarify question and related keywords", async () => {
+    const localRetriever: KnowledgeRetriever = {
+      search: vi.fn().mockResolvedValue(emptyKnowledgeResult())
+    };
+    const router = createRequestRouter({
+      localRetriever,
+      taskCatalog: createTaskCatalogStub()
+    });
+
+    const resolution = await router.route({
+      query: "这个怎么办",
+      intent: {
+        ...buildIntent("unknown"),
+        mode: "clarify",
+        clarifyQuestion: "你是想查制度说明，还是想办理流程？"
+      }
+    });
+
+    expect(resolution).toEqual({
+      kind: "clarification",
+      intent: "unknown",
+      prompt: "你是想查制度说明，还是想办理流程？"
+    });
+  });
+
+  it("returns a no-candidate clarification with related keywords when knowledge misses", async () => {
+    const localRetriever: KnowledgeRetriever = {
+      search: vi.fn().mockResolvedValue({
+        hits: [],
+        relatedKeywords: ["会议室预订", "权限申请说明"]
+      } satisfies KnowledgeSearchResult)
+    };
+    const router = createRequestRouter({
+      localRetriever,
+      taskCatalog: createTaskCatalogStub()
+    });
+
+    const resolution = await router.route({
+      query: "迟到扣钱制度",
+      intent: buildIntent("knowledge_query")
+    });
+
+    expect(resolution).toEqual({
+      kind: "clarification",
+      intent: "unknown",
+      prompt: "我可以帮你查制度说明，或告诉你办理入口。请再具体描述一下问题。",
+      reason: "当前未找到可靠知识，请联系行政同学。",
+      reasonCode: "no_candidate",
+      relatedKeywords: ["会议室预订", "权限申请说明"]
+    });
+  });
+
+  it("returns a low-confidence clarification when top knowledge hit is not reliable enough", async () => {
+    const localRetriever: KnowledgeRetriever = {
+      search: vi.fn().mockResolvedValue({
+        hits: [
+          {
+            id: "card-low-score",
+            title: "会议制度",
+            question: "会议制度",
+            answer: "一条不够可靠的制度说明。",
+            score: 0.45,
+            source: "seed"
+          }
+        ],
+        relatedKeywords: ["会议室预订"]
+      } satisfies KnowledgeSearchResult)
+    };
+    const router = createRequestRouter({
+      localRetriever,
+      taskCatalog: createTaskCatalogStub()
+    });
+
+    const resolution = await router.route({
+      query: "会议制度",
+      intent: buildIntent("knowledge_query")
+    });
+
+    expect(resolution).toEqual({
+      kind: "clarification",
+      intent: "unknown",
+      prompt: "我可以帮你查制度说明，或告诉你办理入口。请再具体描述一下问题。",
+      reason: "当前未找到可靠知识，请联系行政同学。",
+      reasonCode: "low_confidence",
+      relatedKeywords: ["会议室预订"]
+    });
   });
 
   it("falls back to local knowledge when external provider throws", async () => {
@@ -225,17 +362,20 @@ describe("createRequestRouter", () => {
   it("falls back to local knowledge when external provider returns a low-score hit", async () => {
     const localRetriever = buildLocalKnowledgeRetriever();
     const externalRetriever: KnowledgeRetriever = {
-      search: vi.fn().mockResolvedValue([
-        {
-          id: "rag-low-score",
-          title: "年假规则",
-          question: "年假规则是什么",
-          answer: "这是一条不可靠的外部答案",
-          scope: "适用于正式员工",
-          score: 0.32,
-          source: "rag"
-        }
-      ])
+      search: vi.fn().mockResolvedValue({
+        hits: [
+          {
+            id: "rag-low-score",
+            title: "年假规则",
+            question: "年假规则是什么",
+            answer: "这是一条不可靠的外部答案",
+            scope: "适用于正式员工",
+            score: 0.32,
+            source: "rag"
+          }
+        ],
+        relatedKeywords: []
+      } satisfies KnowledgeSearchResult)
     };
     const taskCatalog = createTaskCatalogStub();
     const router = createRequestRouter({
@@ -261,7 +401,7 @@ describe("createRequestRouter", () => {
   it("falls back to local knowledge when external provider returns no hits", async () => {
     const localRetriever = buildLocalKnowledgeRetriever();
     const externalRetriever: KnowledgeRetriever = {
-      search: vi.fn().mockResolvedValue([])
+      search: vi.fn().mockResolvedValue(emptyKnowledgeResult())
     };
     const taskCatalog = createTaskCatalogStub();
     const router = createRequestRouter({

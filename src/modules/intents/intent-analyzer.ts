@@ -1,116 +1,120 @@
+import type { ConversationContextTurn } from "../logging/conversation-context.service";
 import type { IntentType } from "./intent.types";
-import type { ModelIntentClassifier } from "./model-intent-classifier";
+import type { AssistantDecision } from "./intent.types";
+import {
+  buildFallbackDecision,
+  type ModelIntentClassifier
+} from "./model-intent-classifier";
 
-export type IntentAnalysis = {
+export type IntentAnalysis = AssistantDecision & {
+  // 这层 source 只用于调试与测试，方便区分“真实模型决策”还是“轻量降级”。
+  source: "model" | "fallback";
+  // 旧 router 还在读 intent 字段，这里先保留一层桥接映射，
+  // 等后续任务把 route/reply 全切到 mode 后再删掉。
   intent: IntentType;
-  source: "rule" | "model" | "none";
+};
+
+export type AnalyzeIntentInput = {
+  query: string;
+  conversationContext?: ConversationContextTurn[];
 };
 
 export type IntentAnalyzer = {
-  analyze(query: string): Promise<IntentAnalysis>;
+  analyze(input: string | AnalyzeIntentInput): Promise<IntentAnalysis>;
 };
 
 type CreateIntentAnalyzerInput = {
   modelClassifier?: ModelIntentClassifier;
 };
 
-const SMALLTALK_PATTERN =
-  /^(你好|您好|hi|hello|哈喽|嗨|早上好|中午好|下午好|晚上好)([呀啊吗嘛！!,.，。?？\s]*)$/i;
-const HANDOFF_PATTERN = /(找(下)?行政|联系行政|转人工|找人工|找客服|人工处理)/;
-const TASK_ENTITY_PATTERN = /(请假|补卡|报销|出差|入职|离职|审批|申请|行政)/;
-const TASK_CUE_PATTERN =
-  /(我要|我想|帮我|申请|办理|发起|提交|怎么|如何|入口|流程|审批)/;
-const KNOWLEDGE_PATTERN = /(规则|制度|政策|规范|说明|是什么|什么意思|区别)/;
-
 function formatIntentLog(message: string) {
   return `[intent] ${message}`;
 }
 
-function classifyByRule(query: string): IntentType | null {
-  const normalizedQuery = query.trim().toLowerCase();
+function mapModeToLegacyIntent(mode: AssistantDecision["mode"]): IntentType {
+  switch (mode) {
+    case "knowledge":
+      return "knowledge_query";
+    case "task":
+      return "task_request";
+    case "chat":
+      return "smalltalk";
+    case "clarify":
+      return "unknown";
+  }
+}
 
-  if (!normalizedQuery) {
-    return "unknown";
+function normalizeAnalyzeInput(
+  input: string | AnalyzeIntentInput
+): AnalyzeIntentInput {
+  if (typeof input === "string") {
+    return {
+      query: input
+    };
   }
 
-  if (SMALLTALK_PATTERN.test(normalizedQuery)) {
-    return "smalltalk";
-  }
+  return input;
+}
 
-  if (HANDOFF_PATTERN.test(normalizedQuery)) {
-    return "handoff_request";
-  }
-
-  const hasTaskEntity = TASK_ENTITY_PATTERN.test(normalizedQuery);
-  const hasTaskCue = TASK_CUE_PATTERN.test(normalizedQuery);
-  const hasKnowledgeCue = KNOWLEDGE_PATTERN.test(normalizedQuery);
-
-  // 事务词和知识词同时出现时，优先把“流程/入口/怎么做”判成办理诉求。
-  if (hasTaskEntity && hasTaskCue) {
-    return "task_request";
-  }
-
-  if (hasKnowledgeCue) {
-    return "knowledge_query";
-  }
-
-  if (hasTaskEntity) {
-    return "task_request";
-  }
-
-  return null;
+function buildAnalysisResult(
+  decision: AssistantDecision,
+  source: IntentAnalysis["source"]
+): IntentAnalysis {
+  return {
+    ...decision,
+    source,
+    intent: mapModeToLegacyIntent(decision.mode)
+  };
 }
 
 export function createIntentAnalyzer(
   input: CreateIntentAnalyzerInput = {}
 ): IntentAnalyzer {
   return {
-    async analyze(query: string) {
-      const ruleIntent = classifyByRule(query);
-
-      if (ruleIntent) {
-        console.info(
-          formatIntentLog(`source=rule intent=${ruleIntent} query="${query}"`)
-        );
-
-        return {
-          intent: ruleIntent,
-          source: "rule"
-        };
-      }
+    async analyze(rawInput) {
+      const normalizedInput = normalizeAnalyzeInput(rawInput);
 
       if (!input.modelClassifier) {
-        return {
-          intent: "unknown",
-          source: "none"
-        };
+        const fallbackDecision = buildFallbackDecision();
+
+        console.warn(
+          formatIntentLog(
+            `source=fallback mode=${fallbackDecision.mode} query="${normalizedInput.query}" reason="model unavailable"`
+          )
+        );
+
+        return buildAnalysisResult(fallbackDecision, "fallback");
       }
 
       try {
         console.info(
-          formatIntentLog(`source=model action=classify query="${query}"`)
+          formatIntentLog(
+            `source=model action=decide query="${normalizedInput.query}"`
+          )
         );
 
-        const modelIntent = await input.modelClassifier.classify(query);
+        const decision = await input.modelClassifier.classify(normalizedInput);
+
         console.info(
-          formatIntentLog(`source=model intent=${modelIntent} query="${query}"`)
+          formatIntentLog(
+            `source=model mode=${decision.mode} query="${normalizedInput.query}"`
+          )
         );
 
-        return {
-          intent: modelIntent,
-          source: "model"
-        };
+        return buildAnalysisResult(decision, "model");
       } catch {
-        // 模型兜底不可用时，仍然给出保守分类结果。
+        // 这里不再退回本地规则，而是统一走轻量澄清；
+        // 这样第二阶段的行为边界始终保持“模型主导，失败时保守追问”。
         const reason = "model failed";
+        const fallbackDecision = buildFallbackDecision();
+
         console.warn(
-          formatIntentLog(`source=model intent=unknown query="${query}" reason="${reason}"`)
+          formatIntentLog(
+            `source=fallback mode=${fallbackDecision.mode} query="${normalizedInput.query}" reason="${reason}"`
+          )
         );
 
-        return {
-          intent: "unknown",
-          source: "model"
-        };
+        return buildAnalysisResult(fallbackDecision, "fallback");
       }
     }
   };

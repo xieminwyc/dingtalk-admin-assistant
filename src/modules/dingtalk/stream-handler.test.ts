@@ -48,7 +48,10 @@ describe("createDingTalkStreamHandler", () => {
       }
     });
 
-    expect(assistant.reply).toHaveBeenCalledWith("补卡流程是什么");
+    expect(assistant.reply).toHaveBeenCalledWith({
+      query: "补卡流程是什么",
+      sessionId: "https://session.example.com"
+    });
     expect(replyMarkdown).toHaveBeenCalledWith(
       "https://session.example.com",
       "结论\n进入审批后发起补卡申请。"

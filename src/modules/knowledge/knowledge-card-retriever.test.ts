@@ -7,28 +7,29 @@ describe("KnowledgeCardRetriever", () => {
   const retriever = new KnowledgeCardRetriever(sampleKnowledgeCards);
 
   it("returns a hit for an exact title match", async () => {
-    const hits = await retriever.search("年假规则");
+    const result = await retriever.search("年假规则");
 
-    expect(hits).toHaveLength(1);
-    expect(hits[0]?.source).toBe("knowledge_card");
-    expect(hits[0]?.title).toBe("年假规则");
-    expect(hits[0]?.answer).toContain("司龄");
+    expect(result.hits).toHaveLength(1);
+    expect(result.hits[0]?.source).toBe("seed");
+    expect(result.hits[0]?.title).toBe("年假规则");
+    expect(result.hits[0]?.referenceLabel).toBe("年假规则");
+    expect(result.hits[0]?.answer).toContain("司龄");
   });
 
   it("returns a hit for an exact keyword match", async () => {
-    const hits = await retriever.search("预订");
+    const result = await retriever.search("预订");
 
-    expect(hits).toHaveLength(1);
-    expect(hits[0]?.title).toBe("会议室预订");
-    expect(hits[0]?.department).toBe("行政");
+    expect(result.hits).toHaveLength(1);
+    expect(result.hits[0]?.title).toBe("会议室预订");
+    expect(result.hits[0]?.department).toBe("行政");
   });
 
   it("applies department filtering when provided", async () => {
-    const hits = await retriever.search("申请", { department: "IT" });
+    const result = await retriever.search("申请", { department: "IT" });
 
-    expect(hits).toHaveLength(1);
-    expect(hits[0]?.title).toBe("权限申请说明");
-    expect(hits[0]?.department).toBe("IT");
+    expect(result.hits).toHaveLength(1);
+    expect(result.hits[0]?.title).toBe("权限申请说明");
+    expect(result.hits[0]?.department).toBe("IT");
   });
 
   it("sorts hits by score in descending order", async () => {
@@ -49,22 +50,33 @@ describe("KnowledgeCardRetriever", () => {
       }
     ]);
 
-    const hits = await sortingRetriever.search("预订");
+    const result = await sortingRetriever.search("预订");
 
-    expect(hits).toHaveLength(2);
-    expect(hits[0]?.id).toBe("card-title-second");
-    expect(hits[0]?.score).toBeGreaterThan(hits[1]?.score ?? 0);
+    expect(result.hits).toHaveLength(2);
+    expect(result.hits[0]?.id).toBe("card-title-second");
+    expect(result.hits[0]?.score).toBeGreaterThan(result.hits[1]?.score ?? 0);
   });
 
-  it("returns no hits when nothing matches", async () => {
-    const hits = await retriever.search("会议室怎么预订");
+  it("returns a fuzzy hit when the query clearly points to an existing card", async () => {
+    const result = await retriever.search("会议室怎么预订");
 
-    expect(hits).toEqual([]);
+    expect(result.hits).toHaveLength(1);
+    expect(result.hits[0]?.title).toBe("会议室预订");
+    expect(result.hits[0]?.score).toBeGreaterThanOrEqual(0.7);
+    expect(result.relatedKeywords).toEqual([]);
+  });
+
+  it("returns related keywords when there is no confident card match", async () => {
+    const result = await retriever.search("会议室制度");
+
+    expect(result.hits).toEqual([]);
+    expect(result.relatedKeywords).toContain("会议室预订");
   });
 
   it("returns no hits for unrelated queries", async () => {
-    const hits = await retriever.search("下午茶报销规则");
+    const result = await retriever.search("下午茶报销规则");
 
-    expect(hits).toEqual([]);
+    expect(result.hits).toEqual([]);
+    expect(result.relatedKeywords ?? []).toEqual([]);
   });
 });

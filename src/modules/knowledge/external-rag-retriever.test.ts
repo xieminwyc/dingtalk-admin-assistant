@@ -5,7 +5,7 @@ import { KnowledgeCardRetriever } from "./knowledge-card-retriever";
 import { sampleKnowledgeCards } from "./sample-knowledge-cards";
 
 describe("ExternalRagRetriever", () => {
-  it("normalizes provider results into KnowledgeHit[]", async () => {
+  it("normalizes provider results into a unified knowledge search result", async () => {
     const provider = {
       search: vi.fn().mockResolvedValue([
         {
@@ -20,26 +20,30 @@ describe("ExternalRagRetriever", () => {
     };
     const retriever = new ExternalRagRetriever(provider);
 
-    const hits = await retriever.search("年假规则", { department: "HR" });
+    const result = await retriever.search("年假规则", { department: "HR" });
 
     expect(provider.search).toHaveBeenCalledWith({
       query: "年假规则",
       department: "HR"
     });
-    expect(hits).toEqual([
-      {
-        id: "rag-1",
-        title: "年假规则",
-        question: "年假规则",
-        answer: "年假天数按司龄计算，由 HR 制度执行。",
-        content: "年假天数按司龄计算，由 HR 制度执行。",
-        scope: "HR",
-        department: "HR",
-        score: 0.88,
-        source: "rag",
-        url: "https://example.com/hr/annual-leave"
-      }
-    ]);
+    expect(result).toEqual({
+      hits: [
+        {
+          id: "rag-1",
+          title: "年假规则",
+          question: "年假规则",
+          answer: "年假天数按司龄计算，由 HR 制度执行。",
+          content: "年假天数按司龄计算，由 HR 制度执行。",
+          scope: "HR",
+          department: "HR",
+          score: 0.88,
+          source: "rag",
+          url: "https://example.com/hr/annual-leave",
+          referenceLabel: "年假规则"
+        }
+      ],
+      relatedKeywords: []
+    });
   });
 
   it("normalizes known provider department aliases into canonical departments", async () => {
@@ -55,9 +59,9 @@ describe("ExternalRagRetriever", () => {
     };
     const retriever = new ExternalRagRetriever(provider);
 
-    const hits = await retriever.search("权限申请说明");
+    const result = await retriever.search("权限申请说明");
 
-    expect(hits).toEqual([
+    expect(result.hits).toEqual([
       expect.objectContaining({
         id: "rag-2",
         department: "IT",
@@ -79,9 +83,9 @@ describe("ExternalRagRetriever", () => {
     };
     const retriever = new ExternalRagRetriever(provider);
 
-    const hits = await retriever.search("供应商流程");
+    const result = await retriever.search("供应商流程");
 
-    expect(hits).toEqual([
+    expect(result.hits).toEqual([
       expect.objectContaining({
         id: "rag-3",
         department: undefined,
@@ -118,8 +122,8 @@ describe("ExternalRagRetriever", () => {
 
     const hits = await searchWithFallback("年假规则");
 
-    expect(hits).toHaveLength(1);
-    expect(hits[0]?.source).toBe("knowledge_card");
-    expect(hits[0]?.title).toBe("年假规则");
+    expect(hits.hits).toHaveLength(1);
+    expect(hits.hits[0]?.source).toBe("seed");
+    expect(hits.hits[0]?.title).toBe("年假规则");
   });
 });

@@ -30,6 +30,79 @@ import {
   createSessionWebhookReplier
 } from "./stream-client";
 
+function buildDecisionPayload(query: string) {
+  if (query.includes("请假")) {
+    return {
+      mode: "task",
+      intentConfidence: 0.94,
+      needKnowledge: false,
+      needTaskResolution: true,
+      topicShift: false,
+      taskHint: "leave_application"
+    };
+  }
+
+  return {
+    mode: "knowledge",
+    intentConfidence: 0.93,
+    needKnowledge: true,
+    needTaskResolution: false,
+    topicShift: false,
+    knowledgeHint: "年假规则"
+  };
+}
+
+function buildGeneratedReply(query: string) {
+  if (query.includes("请假")) {
+    return "事务入口\nhttps://oa.example.com/tasks/leave-application\n\n操作指引\n请按入口提示继续办理";
+  }
+
+  return "结论\n年假天数按司龄计算，试用期不单独享有年假，具体以 HR 制度公告为准。\n\n适用范围\n适用于正式员工年假政策查询";
+}
+
+function installModelEnabledFetchMock() {
+  process.env.SILICONFLOW_API_KEY = "test-key";
+  process.env.SILICONFLOW_BASE_URL = "https://api.siliconflow.cn/v1";
+  process.env.SILICONFLOW_MODEL = "Qwen/Qwen3-8B";
+
+  return vi.spyOn(globalThis, "fetch").mockImplementation(async (input, init) => {
+    const url = String(input);
+
+    if (url.endsWith("/chat/completions")) {
+      const requestBody = JSON.parse(String(init?.body ?? "{}")) as {
+        messages?: Array<{ content?: string }>;
+      };
+      const query =
+        requestBody.messages?.[1]?.content?.split("当前用户消息：")[1]?.trim() ?? "";
+      const systemPrompt = requestBody.messages?.[0]?.content ?? "";
+
+      if (String(systemPrompt).includes("回复生成器")) {
+        return Response.json({
+          choices: [
+            {
+              message: {
+                content: buildGeneratedReply(query)
+              }
+            }
+          ]
+        });
+      }
+
+      return Response.json({
+        choices: [
+          {
+            message: {
+              content: JSON.stringify(buildDecisionPayload(query))
+            }
+          }
+        ]
+      });
+    }
+
+    return new Response(null, { status: 200 });
+  });
+}
+
 function createStreamHeaders(messageId: string) {
   return {
     appId: "app-1",
@@ -46,6 +119,9 @@ beforeEach(() => {
 });
 
 afterEach(() => {
+  delete process.env.SILICONFLOW_API_KEY;
+  delete process.env.SILICONFLOW_BASE_URL;
+  delete process.env.SILICONFLOW_MODEL;
   vi.restoreAllMocks();
 });
 
@@ -102,7 +178,10 @@ describe("createRobotStreamListener", () => {
       })
     });
 
-    expect(assistant.reply).toHaveBeenCalledWith("补卡流程是什么");
+    expect(assistant.reply).toHaveBeenCalledWith({
+      query: "补卡流程是什么",
+      sessionId: "https://session.example.com"
+    });
     expect(replier.replyMarkdown).toHaveBeenCalled();
     expect(socketCallBackResponse).toHaveBeenCalledWith("msg-1", "SUCCESS");
   });
@@ -228,9 +307,7 @@ describe("createAssistantRuntime", () => {
 
 describe("createDingTalkStreamClient", () => {
   it("uses the shared default runtime to answer task requests", async () => {
-    const fetchSpy = vi
-      .spyOn(globalThis, "fetch")
-      .mockImplementation(async () => new Response(null, { status: 200 }));
+    const fetchSpy = installModelEnabledFetchMock();
 
     createDingTalkStreamClient({
       clientId: "client-id",
@@ -263,9 +340,7 @@ describe("createDingTalkStreamClient", () => {
   });
 
   it("uses the shared default runtime to answer knowledge requests", async () => {
-    const fetchSpy = vi
-      .spyOn(globalThis, "fetch")
-      .mockImplementation(async () => new Response(null, { status: 200 }));
+    const fetchSpy = installModelEnabledFetchMock();
 
     createDingTalkStreamClient({
       clientId: "client-id",

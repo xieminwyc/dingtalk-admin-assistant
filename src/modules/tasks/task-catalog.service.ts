@@ -23,6 +23,9 @@ function buildFallbackResolution(): TaskCatalogResolution {
     description: "暂未找到可直接跳转的入口，请联系兜底联系人确认办理方式。",
     preparations: [],
     entryUrl: undefined,
+    actionType: undefined,
+    availability: "unknown",
+    availabilityReason: "当前未命中可用的事务配置。",
     fallbackContact: DEFAULT_FALLBACK_CONTACT
   };
 }
@@ -38,6 +41,11 @@ function mapItemToResolution(
     description: item.description,
     preparations: [...item.preparations],
     entryUrl: item.entryUrl,
+    // actionType 和 availability 先支持最小契约：
+    // 目录里显式给了就复用；没给时按“有 URL 就可用”推一个保守默认值。
+    actionType: item.actionType ?? (item.entryUrl ? "url" : undefined),
+    availability: item.availability ?? "available",
+    availabilityReason: item.availabilityReason,
     fallbackContact: item.fallbackContact
   };
 }
@@ -66,15 +74,33 @@ export class TaskCatalogService {
       return undefined;
     }
 
+    let bestMatch:
+      | {
+          item: TaskCatalogItem;
+          keyword: string;
+          score: number;
+        }
+      | undefined;
+
     for (const item of this.catalog) {
       for (const keyword of item.keywords) {
         if (isKeywordHit(query, keyword)) {
-          return { item, keyword };
+          const score = normalizeText(keyword).length;
+
+          // 关键词命中不是“先到先得”，而是“更具体的词优先”。
+          // 否则像“申请”这类泛词会过早截走“办公用品采购”这种更明确的事务。
+          if (!bestMatch || score > bestMatch.score) {
+            bestMatch = {
+              item,
+              keyword,
+              score
+            };
+          }
         }
       }
     }
 
-    return undefined;
+    return bestMatch;
   }
 
   // resolve 是事务目录的统一入口：

@@ -14,23 +14,26 @@ describe("FaqKnowledgeRetriever", () => {
   ]);
 
   it("returns a hit for the standard question", async () => {
-    const hits = await retriever.search("补卡流程是什么");
+    const result = await retriever.search("补卡流程是什么");
 
-    expect(hits).toHaveLength(1);
-    expect(hits[0]?.source).toBe("faq");
-    expect(hits[0]?.answer).toContain("补卡申请");
+    expect(result.hits).toHaveLength(1);
+    expect(result.hits[0]?.source).toBe("faq");
+    expect(result.hits[0]?.answer).toContain("补卡申请");
   });
 
   it("returns a hit for an alias question", async () => {
-    const hits = await retriever.search("忘记打卡怎么办");
+    const result = await retriever.search("忘记打卡怎么办");
 
-    expect(hits).toHaveLength(1);
-    expect(hits[0]?.question).toBe("补卡流程是什么");
+    expect(result.hits).toHaveLength(1);
+    expect(result.hits[0]?.question).toBe("补卡流程是什么");
   });
 
   it("returns no hits for unrelated questions", async () => {
-    const hits = await retriever.search("午饭吃什么");
+    const result = await retriever.search("午饭吃什么");
 
-    expect(hits).toEqual([]);
+    expect(result).toEqual({
+      hits: [],
+      relatedKeywords: []
+    });
   });
 });
