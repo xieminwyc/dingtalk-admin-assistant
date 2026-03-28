@@ -1,7 +1,11 @@
 import type { AssistantResolution } from "../assistant/assistant.types";
 import { evaluateHandoff } from "../handoff/handoff.service";
 import type { IntentAnalysis } from "../intents/intent-analyzer";
-import type { KnowledgeHit, KnowledgeRetriever } from "../knowledge/retriever.types";
+import type {
+  KnowledgeHit,
+  KnowledgeRetriever,
+  KnowledgeSearchResult
+} from "../knowledge/retriever.types";
 import type {
   TaskCatalogResolution,
   TaskCatalogResolveInput
@@ -77,14 +81,14 @@ async function searchKnowledge(input: {
   localRetriever: KnowledgeRetriever;
   externalRetriever?: KnowledgeRetriever;
   enableExternalKnowledge?: boolean;
-}) {
+}): Promise<KnowledgeSearchResult> {
   if (input.enableExternalKnowledge && input.externalRetriever) {
     try {
-      const externalHits = await input.externalRetriever.search(input.query);
-      const topExternalHit = externalHits[0];
+      const externalResult = await input.externalRetriever.search(input.query);
+      const topExternalHit = externalResult.hits[0];
 
       if (topExternalHit && topExternalHit.score >= EXTERNAL_RELIABLE_SCORE) {
-        return externalHits;
+        return externalResult;
       }
     } catch {
       // provider 出错时直接回退本地卡片，保证一期能力稳定。
@@ -104,19 +108,27 @@ export function createRequestRouter(input: {
     async route(request: RequestRouteInput): Promise<AssistantResolution> {
       switch (request.intent.intent) {
         case "knowledge_query": {
-          const hits = await searchKnowledge({
+          const knowledgeResult = await searchKnowledge({
             query: request.query,
             localRetriever: input.localRetriever,
             externalRetriever: input.externalRetriever,
             enableExternalKnowledge: input.enableExternalKnowledge
           });
+          const hits = knowledgeResult.hits;
           const handoff = evaluateHandoff({
             hitCount: hits.length,
             topScore: hits[0]?.score ?? 0
           });
 
           if (handoff.required || !hits[0]) {
-            return buildClarificationResolution(handoff.reason);
+            const suggestionReason =
+              knowledgeResult.relatedKeywords.length > 0
+                ? `你可以换个说法试试：${knowledgeResult.relatedKeywords.join("、")}`
+                : undefined;
+
+            return buildClarificationResolution(
+              suggestionReason ?? handoff.reason
+            );
           }
 
           return buildKnowledgeResolution(hits[0]);

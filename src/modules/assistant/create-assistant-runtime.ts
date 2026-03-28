@@ -87,14 +87,21 @@ function createLocalKnowledgeRetriever(): KnowledgeRetriever {
   return {
     async search(query, options) {
       for (const candidate of buildKnowledgeFallbackQueries(query)) {
-        const hits = await cardRetriever.search(candidate, options);
+        const result = await cardRetriever.search(candidate, options);
 
-        if (hits.length > 0) {
-          return hits;
+        if (result.hits.length > 0) {
+          return result;
+        }
+
+        if (result.relatedKeywords.length > 0) {
+          return result;
         }
       }
 
-      return [];
+      return {
+        hits: [],
+        relatedKeywords: []
+      };
     }
   };
 }

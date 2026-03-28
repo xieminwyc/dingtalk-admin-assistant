@@ -1,7 +1,10 @@
 import { describe, expect, it, vi } from "vitest";
 
 import { createAssistantService } from "./assistant.service";
-import type { KnowledgeRetriever } from "../knowledge/retriever.types";
+import type {
+  KnowledgeRetriever,
+  KnowledgeSearchResult
+} from "../knowledge/retriever.types";
 import type { IntentAnalyzer } from "../intents/intent-analyzer";
 import type { TaskCatalogResolution } from "../tasks/task-catalog.types";
 
@@ -24,16 +27,19 @@ describe("createAssistantService", () => {
   it("returns a structured reply when the retriever finds a knowledge hit", async () => {
     const localRetriever: KnowledgeRetriever = {
       async search() {
-        return [
-          {
-            id: "faq-1",
-            question: "补卡流程是什么",
-            answer: "进入审批后发起补卡申请，由直属主管审批。",
-            scope: "适用于因漏打卡产生异常的员工",
-            score: 0.97,
-            source: "faq"
-          }
-        ];
+        return {
+          hits: [
+            {
+              id: "faq-1",
+              question: "补卡流程是什么",
+              answer: "进入审批后发起补卡申请，由直属主管审批。",
+              scope: "适用于因漏打卡产生异常的员工",
+              score: 0.97,
+              source: "faq"
+            }
+          ],
+          relatedKeywords: []
+        } satisfies KnowledgeSearchResult;
       }
     };
 
@@ -50,7 +56,10 @@ describe("createAssistantService", () => {
   it("returns a handoff message when no knowledge is found", async () => {
     const localRetriever: KnowledgeRetriever = {
       async search() {
-        return [];
+        return {
+          hits: [],
+          relatedKeywords: []
+        };
       }
     };
 
@@ -165,26 +174,32 @@ describe("createAssistantService", () => {
   });
 
   it("uses external provider first for knowledge_query when enabled", async () => {
-    const localSearch = vi.fn().mockResolvedValue([
-      {
-        id: "local-1",
-        question: "年假规则是什么",
-        answer: "本地规则答案",
-        scope: "适用于正式员工",
-        score: 0.91,
-        source: "knowledge_card"
-      }
-    ]);
-    const externalSearch = vi.fn().mockResolvedValue([
-      {
-        id: "rag-1",
-        question: "年假规则是什么",
-        answer: "外部知识库答案",
-        scope: "适用于正式员工",
-        score: 0.96,
-        source: "rag"
-      }
-    ]);
+    const localSearch = vi.fn().mockResolvedValue({
+      hits: [
+        {
+          id: "local-1",
+          question: "年假规则是什么",
+          answer: "本地规则答案",
+          scope: "适用于正式员工",
+          score: 0.91,
+          source: "seed"
+        }
+      ],
+      relatedKeywords: []
+    } satisfies KnowledgeSearchResult);
+    const externalSearch = vi.fn().mockResolvedValue({
+      hits: [
+        {
+          id: "rag-1",
+          question: "年假规则是什么",
+          answer: "外部知识库答案",
+          scope: "适用于正式员工",
+          score: 0.96,
+          source: "rag"
+        }
+      ],
+      relatedKeywords: []
+    } satisfies KnowledgeSearchResult);
     const localRetriever: KnowledgeRetriever = {
       search: localSearch
     };
@@ -215,16 +230,19 @@ describe("createAssistantService", () => {
   });
 
   it("falls back to local knowledge when external provider throws", async () => {
-    const localSearch = vi.fn().mockResolvedValue([
-      {
-        id: "local-2",
-        question: "报销规则是什么",
-        answer: "本地知识卡片答案",
-        scope: "适用于报销场景",
-        score: 0.9,
-        source: "knowledge_card"
-      }
-    ]);
+    const localSearch = vi.fn().mockResolvedValue({
+      hits: [
+        {
+          id: "local-2",
+          question: "报销规则是什么",
+          answer: "本地知识卡片答案",
+          scope: "适用于报销场景",
+          score: 0.9,
+          source: "seed"
+        }
+      ],
+      relatedKeywords: []
+    } satisfies KnowledgeSearchResult);
     const externalSearch = vi.fn().mockRejectedValue(new Error("provider crashed"));
     const localRetriever: KnowledgeRetriever = {
       search: localSearch

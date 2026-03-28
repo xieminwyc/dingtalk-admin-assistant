@@ -2,7 +2,10 @@ import { describe, expect, it, vi } from "vitest";
 
 import { createRequestRouter } from "./request-router";
 import type { IntentAnalysis } from "../intents/intent-analyzer";
-import type { KnowledgeRetriever } from "../knowledge/retriever.types";
+import type {
+  KnowledgeRetriever,
+  KnowledgeSearchResult
+} from "../knowledge/retriever.types";
 import type { TaskCatalogResolution } from "../tasks/task-catalog.types";
 
 function createTaskCatalogStub(
@@ -22,17 +25,27 @@ function createTaskCatalogStub(
 
 function buildLocalKnowledgeRetriever(): KnowledgeRetriever {
   return {
-    search: vi.fn().mockResolvedValue([
-      {
-        id: "card-1",
-        title: "年假规则",
-        question: "年假规则是什么",
-        answer: "年假按司龄计算。",
-        scope: "适用于正式员工",
-        score: 0.92,
-        source: "knowledge_card"
-      }
-    ])
+    search: vi.fn().mockResolvedValue({
+      hits: [
+        {
+          id: "card-1",
+          title: "年假规则",
+          question: "年假规则是什么",
+          answer: "年假按司龄计算。",
+          scope: "适用于正式员工",
+          score: 0.92,
+          source: "seed"
+        }
+      ],
+      relatedKeywords: []
+    } satisfies KnowledgeSearchResult)
+  };
+}
+
+function emptyKnowledgeResult(): KnowledgeSearchResult {
+  return {
+    hits: [],
+    relatedKeywords: []
   };
 }
 
@@ -47,7 +60,7 @@ describe("createRequestRouter", () => {
   it("routes knowledge_query to knowledge resolution", async () => {
     const localRetriever = buildLocalKnowledgeRetriever();
     const externalRetriever: KnowledgeRetriever = {
-      search: vi.fn().mockResolvedValue([])
+      search: vi.fn().mockResolvedValue(emptyKnowledgeResult())
     };
     const taskCatalog = createTaskCatalogStub();
     const router = createRequestRouter({
@@ -73,7 +86,7 @@ describe("createRequestRouter", () => {
 
   it("routes task_request to task resolution", async () => {
     const localRetriever: KnowledgeRetriever = {
-      search: vi.fn().mockResolvedValue([])
+      search: vi.fn().mockResolvedValue(emptyKnowledgeResult())
     };
     const taskCatalog = createTaskCatalogStub();
     const router = createRequestRouter({
@@ -99,7 +112,7 @@ describe("createRequestRouter", () => {
 
   it("passes structured taskType to task resolver when provided", async () => {
     const localRetriever: KnowledgeRetriever = {
-      search: vi.fn().mockResolvedValue([])
+      search: vi.fn().mockResolvedValue(emptyKnowledgeResult())
     };
     const taskCatalog = createTaskCatalogStub({
       taskType: "expense_application",
@@ -132,7 +145,7 @@ describe("createRequestRouter", () => {
 
   it("routes handoff_request to handoff resolution", async () => {
     const localRetriever: KnowledgeRetriever = {
-      search: vi.fn().mockResolvedValue([])
+      search: vi.fn().mockResolvedValue(emptyKnowledgeResult())
     };
     const router = createRequestRouter({
       localRetriever,
@@ -154,7 +167,7 @@ describe("createRequestRouter", () => {
 
   it("routes smalltalk to a lightweight reply", async () => {
     const localRetriever: KnowledgeRetriever = {
-      search: vi.fn().mockResolvedValue([])
+      search: vi.fn().mockResolvedValue(emptyKnowledgeResult())
     };
     const router = createRequestRouter({
       localRetriever,
@@ -176,7 +189,7 @@ describe("createRequestRouter", () => {
 
   it("routes unknown to clarification", async () => {
     const localRetriever: KnowledgeRetriever = {
-      search: vi.fn().mockResolvedValue([])
+      search: vi.fn().mockResolvedValue(emptyKnowledgeResult())
     };
     const router = createRequestRouter({
       localRetriever,
@@ -225,17 +238,20 @@ describe("createRequestRouter", () => {
   it("falls back to local knowledge when external provider returns a low-score hit", async () => {
     const localRetriever = buildLocalKnowledgeRetriever();
     const externalRetriever: KnowledgeRetriever = {
-      search: vi.fn().mockResolvedValue([
-        {
-          id: "rag-low-score",
-          title: "年假规则",
-          question: "年假规则是什么",
-          answer: "这是一条不可靠的外部答案",
-          scope: "适用于正式员工",
-          score: 0.32,
-          source: "rag"
-        }
-      ])
+      search: vi.fn().mockResolvedValue({
+        hits: [
+          {
+            id: "rag-low-score",
+            title: "年假规则",
+            question: "年假规则是什么",
+            answer: "这是一条不可靠的外部答案",
+            scope: "适用于正式员工",
+            score: 0.32,
+            source: "rag"
+          }
+        ],
+        relatedKeywords: []
+      } satisfies KnowledgeSearchResult)
     };
     const taskCatalog = createTaskCatalogStub();
     const router = createRequestRouter({
@@ -261,7 +277,7 @@ describe("createRequestRouter", () => {
   it("falls back to local knowledge when external provider returns no hits", async () => {
     const localRetriever = buildLocalKnowledgeRetriever();
     const externalRetriever: KnowledgeRetriever = {
-      search: vi.fn().mockResolvedValue([])
+      search: vi.fn().mockResolvedValue(emptyKnowledgeResult())
     };
     const taskCatalog = createTaskCatalogStub();
     const router = createRequestRouter({
