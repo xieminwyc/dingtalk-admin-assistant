@@ -74,15 +74,33 @@ export class TaskCatalogService {
       return undefined;
     }
 
+    let bestMatch:
+      | {
+          item: TaskCatalogItem;
+          keyword: string;
+          score: number;
+        }
+      | undefined;
+
     for (const item of this.catalog) {
       for (const keyword of item.keywords) {
         if (isKeywordHit(query, keyword)) {
-          return { item, keyword };
+          const score = normalizeText(keyword).length;
+
+          // 关键词命中不是“先到先得”，而是“更具体的词优先”。
+          // 否则像“申请”这类泛词会过早截走“办公用品采购”这种更明确的事务。
+          if (!bestMatch || score > bestMatch.score) {
+            bestMatch = {
+              item,
+              keyword,
+              score
+            };
+          }
         }
       }
     }
 
-    return undefined;
+    return bestMatch;
   }
 
   // resolve 是事务目录的统一入口：

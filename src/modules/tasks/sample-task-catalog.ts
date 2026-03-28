@@ -44,5 +44,15 @@ export const sampleTaskCatalog: TaskCatalogItem[] = [
     actionType: "url",
     availability: "available",
     fallbackContact: "IT 同学"
+  },
+  {
+    taskType: "office_supply_purchase",
+    title: "办公用品采购",
+    description: "用于申请办公用品采购与补货。",
+    keywords: ["办公用品", "采购", "文具", "补货"],
+    preparations: ["确认采购清单", "说明采购用途"],
+    availability: "unavailable",
+    availabilityReason: "办公用品线上采购入口当前暂停开放，请先联系行政同学线下登记。",
+    fallbackContact: "行政同学"
   }
 ];

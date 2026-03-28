@@ -23,6 +23,15 @@ describe("TaskCatalogService", () => {
     expect(result.availability).toBe("available");
   });
 
+  it("不可办理事务会明确返回 availability 和原因", () => {
+    const result = service.resolve({ query: "我要申请办公用品采购" });
+
+    expect(result.title).toBe("办公用品采购");
+    expect(result.availability).toBe("unavailable");
+    expect(result.availabilityReason).toContain("暂停");
+    expect(result.entryUrl).toBeUndefined();
+  });
+
   it("可以只按 taskType 解析事务", () => {
     const result = service.resolve({ taskType: "permission_access" });
 
