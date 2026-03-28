@@ -6,6 +6,7 @@ import type {
   KnowledgeSearchResult
 } from "../knowledge/retriever.types";
 import type { IntentAnalyzer } from "../intents/intent-analyzer";
+import type { IntentAnalysis } from "../intents/intent-analyzer";
 import type { TaskCatalogResolution } from "../tasks/task-catalog.types";
 
 function createTaskCatalog() {
@@ -20,6 +21,31 @@ function createTaskCatalog() {
 
   return {
     resolve: vi.fn().mockReturnValue(resolution)
+  };
+}
+
+function buildIntentAnalysis(
+  mode: IntentAnalysis["mode"],
+  overrides: Partial<IntentAnalysis> = {}
+): IntentAnalysis {
+  const legacyIntent =
+    mode === "knowledge"
+      ? "knowledge_query"
+      : mode === "task"
+        ? "task_request"
+        : mode === "chat"
+          ? "smalltalk"
+          : "unknown";
+
+  return {
+    mode,
+    intentConfidence: 0.9,
+    needKnowledge: mode === "knowledge",
+    needTaskResolution: mode === "task",
+    topicShift: false,
+    intent: legacyIntent,
+    source: "model",
+    ...overrides
   };
 }
 
@@ -80,10 +106,7 @@ describe("createAssistantService", () => {
     };
     const analyzer: IntentAnalyzer = {
       async analyze() {
-        return {
-          intent: "smalltalk",
-          source: "rule"
-        };
+        return buildIntentAnalysis("chat");
       }
     };
 
@@ -97,7 +120,7 @@ describe("createAssistantService", () => {
     expect(reply).toContain("你好");
   });
 
-  it("obeys analyzer output contract for handoff requests", async () => {
+  it("treats legacy handoff-style requests as clarification in contextual mode", async () => {
     const localRetriever: KnowledgeRetriever = {
       async search() {
         throw new Error("retriever should not be called for handoff");
@@ -105,10 +128,7 @@ describe("createAssistantService", () => {
     };
     const analyzer: IntentAnalyzer = {
       async analyze() {
-        return {
-          intent: "handoff_request",
-          source: "rule"
-        };
+        return buildIntentAnalysis("clarify");
       }
     };
 
@@ -119,7 +139,7 @@ describe("createAssistantService", () => {
     });
     const reply = await assistant.reply("帮我找行政");
 
-    expect(reply).toContain("联系行政同学");
+    expect(reply).toContain("请再具体描述一下问题");
   });
 
   it("obeys analyzer output contract for task requests", async () => {
@@ -130,10 +150,7 @@ describe("createAssistantService", () => {
     };
     const analyzer: IntentAnalyzer = {
       async analyze() {
-        return {
-          intent: "task_request",
-          source: "rule"
-        };
+        return buildIntentAnalysis("task");
       }
     };
 
@@ -156,10 +173,7 @@ describe("createAssistantService", () => {
     };
     const analyzer: IntentAnalyzer = {
       async analyze() {
-        return {
-          intent: "unknown",
-          source: "none"
-        };
+        return buildIntentAnalysis("clarify");
       }
     };
 
@@ -208,10 +222,7 @@ describe("createAssistantService", () => {
     };
     const analyzer: IntentAnalyzer = {
       async analyze() {
-        return {
-          intent: "knowledge_query",
-          source: "model"
-        };
+        return buildIntentAnalysis("knowledge");
       }
     };
 
@@ -252,10 +263,7 @@ describe("createAssistantService", () => {
     };
     const analyzer: IntentAnalyzer = {
       async analyze() {
-        return {
-          intent: "knowledge_query",
-          source: "model"
-        };
+        return buildIntentAnalysis("knowledge");
       }
     };
 
@@ -312,8 +320,7 @@ describe("createAssistantService", () => {
         });
 
         return {
-          intent: "task_request",
-          source: "model"
+          ...buildIntentAnalysis("task")
         };
       }
     };

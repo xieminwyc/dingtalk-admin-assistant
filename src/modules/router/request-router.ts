@@ -30,12 +30,17 @@ export type RequestRouteInput = {
 
 // 澄清回复在路由层统一生成，assistant service 只复用这里的结果，
 // 避免同一条保守文案在多处维护后产生漂移。
-export function buildClarificationResolution(reason?: string): AssistantResolution {
+export function buildClarificationResolution(input?: {
+  prompt?: string;
+  reason?: string;
+  relatedKeywords?: string[];
+}): AssistantResolution {
   return {
     kind: "clarification",
     intent: "unknown",
-    prompt: DEFAULT_CLARIFICATION_PROMPT,
-    reason
+    prompt: input?.prompt ?? DEFAULT_CLARIFICATION_PROMPT,
+    reason: input?.reason,
+    relatedKeywords: input?.relatedKeywords
   };
 }
 
@@ -45,7 +50,8 @@ function buildKnowledgeResolution(hit: KnowledgeHit): AssistantResolution {
     intent: "knowledge_query",
     title: hit.title ?? hit.question,
     answer: hit.answer,
-    scope: hit.scope
+    scope: hit.scope,
+    referenceLabel: hit.referenceLabel
   };
 }
 
@@ -69,7 +75,10 @@ function buildTaskResolution(
     entry:
       task.entryUrl ??
       `暂未找到可直接跳转的入口，请联系${task.fallbackContact}确认办理方式。`,
-    guidance: [task.description, preparations].filter(Boolean).join("\n")
+    guidance: [task.description, preparations].filter(Boolean).join("\n"),
+    actionType: task.actionType,
+    availability: task.availability,
+    availabilityReason: task.availabilityReason
   };
 }
 
@@ -106,10 +115,10 @@ export function createRequestRouter(input: {
 }) {
   return {
     async route(request: RequestRouteInput): Promise<AssistantResolution> {
-      switch (request.intent.intent) {
-        case "knowledge_query": {
+      switch (request.intent.mode) {
+        case "knowledge": {
           const knowledgeResult = await searchKnowledge({
-            query: request.query,
+            query: request.intent.knowledgeHint ?? request.query,
             localRetriever: input.localRetriever,
             externalRetriever: input.externalRetriever,
             enableExternalKnowledge: input.enableExternalKnowledge
@@ -121,35 +130,27 @@ export function createRequestRouter(input: {
           });
 
           if (handoff.required || !hits[0]) {
-            const suggestionReason =
-              knowledgeResult.relatedKeywords.length > 0
-                ? `你可以换个说法试试：${knowledgeResult.relatedKeywords.join("、")}`
-                : undefined;
-
-            return buildClarificationResolution(
-              suggestionReason ?? handoff.reason
-            );
+            return buildClarificationResolution({
+              reason: handoff.reason,
+              relatedKeywords: knowledgeResult.relatedKeywords
+            });
           }
 
           return buildKnowledgeResolution(hits[0]);
         }
-        case "task_request":
+        case "task":
           // 任务请求允许上游透传结构化 taskType；没有时就退回 query 关键词解析。
           return buildTaskResolution(input.taskCatalog, request);
-        case "handoff_request":
-          return {
-            kind: "handoff",
-            intent: "handoff_request",
-            reason: "这类需求更适合行政同学直接处理，请联系行政同学。"
-          };
-        case "smalltalk":
+        case "chat":
           return {
             kind: "smalltalk",
             intent: "smalltalk",
             reply: "你好，我可以帮你查行政制度或办理入口。"
           };
-        case "unknown":
-          return buildClarificationResolution();
+        case "clarify":
+          return buildClarificationResolution({
+            prompt: request.intent.clarifyQuestion
+          });
       }
     }
   };

@@ -15,6 +15,7 @@ export type AssistantKnowledgeResolution = {
   title: string;
   answer: string;
   scope?: string;
+  referenceLabel?: string;
 };
 
 export type AssistantTaskResolution = {
@@ -24,6 +25,9 @@ export type AssistantTaskResolution = {
   title: string;
   entry: string;
   guidance?: string;
+  actionType?: "url" | "api";
+  availability?: "available" | "unavailable" | "unknown";
+  availabilityReason?: string;
 };
 
 export type AssistantHandoffResolution = {
@@ -37,6 +41,7 @@ export type AssistantClarificationResolution = {
   intent: AssistantIntentByKind["clarification"];
   prompt: string;
   reason?: string;
+  relatedKeywords?: string[];
   handoff?: HandoffDecision;
 };
 

@@ -12,6 +12,7 @@ function formatKnowledgeReply(input: {
   title?: string;
   answer: string;
   scope?: string;
+  referenceLabel?: string;
 }) {
   const lines = [
     "结论",
@@ -21,10 +22,20 @@ function formatKnowledgeReply(input: {
     input.scope ?? "请以行政制度为准"
   ];
 
+  if (input.referenceLabel) {
+    lines.push("", "依据", input.referenceLabel);
+  }
+
   return lines.join("\n");
 }
 
-function formatTaskReply(input: { title: string; entry: string; guidance?: string }) {
+function formatTaskReply(input: {
+  title: string;
+  entry: string;
+  guidance?: string;
+  availability?: "available" | "unavailable" | "unknown";
+  availabilityReason?: string;
+}) {
   const lines = [
     "事务入口",
     input.entry,
@@ -33,15 +44,29 @@ function formatTaskReply(input: { title: string; entry: string; guidance?: strin
     input.guidance ?? "请按入口提示继续办理"
   ];
 
+  if (input.availability && input.availability !== "available") {
+    lines.push(
+      "",
+      "当前状态",
+      input.availabilityReason ?? "当前暂时无法确认是否可以直接办理。"
+    );
+  }
+
   return lines.join("\n");
 }
 
 function formatClarificationReply(input: {
   prompt: string;
   reason?: string;
+  relatedKeywords?: string[];
   handoff?: HandoffDecision;
 }) {
-  return [input.prompt, input.reason ?? input.handoff?.reason]
+  const suggestion =
+    input.relatedKeywords && input.relatedKeywords.length > 0
+      ? `你可以试试：${input.relatedKeywords.join("、")}`
+      : undefined;
+
+  return [input.prompt, input.reason ?? input.handoff?.reason, suggestion]
     .filter(Boolean)
     .join("\n");
 }
