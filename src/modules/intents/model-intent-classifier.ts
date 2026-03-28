@@ -1,7 +1,15 @@
-import type { IntentType } from "./intent.types";
+import type { ConversationContextTurn } from "../logging/conversation-context.service";
+import type { AssistantDecision, AssistantMode } from "./intent.types";
+
+export type ModelIntentClassifierInput = {
+  query: string;
+  conversationContext?: ConversationContextTurn[];
+};
 
 export type ModelIntentClassifier = {
-  classify(query: string): Promise<IntentType>;
+  classify(
+    input: string | ModelIntentClassifierInput
+  ): Promise<AssistantDecision>;
 };
 
 type CreateModelIntentClassifierInput = {
@@ -11,30 +19,113 @@ type CreateModelIntentClassifierInput = {
   fetch?: typeof fetch;
 };
 
-const SUPPORTED_INTENTS: IntentType[] = [
-  "knowledge_query",
-  "task_request",
-  "handoff_request",
-  "smalltalk",
-  "unknown",
+const SUPPORTED_MODES: AssistantMode[] = [
+  "knowledge",
+  "task",
+  "chat",
+  "clarify"
 ];
+const DEFAULT_CLARIFY_QUESTION =
+  "我先确认一下，你是想查制度说明，还是想办理流程？";
 
-function isIntentType(value: unknown): value is IntentType {
-  return SUPPORTED_INTENTS.includes(value as IntentType);
+function isAssistantMode(value: unknown): value is AssistantMode {
+  return SUPPORTED_MODES.includes(value as AssistantMode);
 }
 
-function extractIntentFromContent(content: string): IntentType {
-  try {
-    const parsed = JSON.parse(content) as { intent?: unknown };
-
-    if (isIntentType(parsed.intent)) {
-      return parsed.intent;
-    }
-  } catch {
-    // 模型偶发返回非 JSON 时，统一回落成 unknown，避免误判。
+function clampConfidence(value: unknown) {
+  if (typeof value !== "number" || Number.isNaN(value)) {
+    return 0;
   }
 
-  return "unknown";
+  return Math.max(0, Math.min(1, value));
+}
+
+function fallbackToolUsageByMode(mode: AssistantMode) {
+  return {
+    needKnowledge: mode === "knowledge",
+    needTaskResolution: mode === "task"
+  };
+}
+
+function buildFallbackDecision(): AssistantDecision {
+  return {
+    mode: "clarify",
+    intentConfidence: 0,
+    needKnowledge: false,
+    needTaskResolution: false,
+    topicShift: false,
+    clarifyQuestion: DEFAULT_CLARIFY_QUESTION
+  };
+}
+
+function pickOptionalText(value: unknown) {
+  if (typeof value !== "string") {
+    return undefined;
+  }
+
+  const normalized = value.trim();
+  return normalized.length > 0 ? normalized : undefined;
+}
+
+function extractDecisionFromContent(content: string): AssistantDecision {
+  try {
+    const parsed = JSON.parse(content) as Partial<AssistantDecision>;
+
+    if (!isAssistantMode(parsed.mode)) {
+      return buildFallbackDecision();
+    }
+
+    const fallbackUsage = fallbackToolUsageByMode(parsed.mode);
+
+    return {
+      mode: parsed.mode,
+      intentConfidence: clampConfidence(parsed.intentConfidence),
+      needKnowledge:
+        typeof parsed.needKnowledge === "boolean"
+          ? parsed.needKnowledge
+          : fallbackUsage.needKnowledge,
+      needTaskResolution:
+        typeof parsed.needTaskResolution === "boolean"
+          ? parsed.needTaskResolution
+          : fallbackUsage.needTaskResolution,
+      topicShift: Boolean(parsed.topicShift),
+      contextBreakConfidence:
+        typeof parsed.contextBreakConfidence === "number"
+          ? clampConfidence(parsed.contextBreakConfidence)
+          : undefined,
+      clarifyQuestion:
+        pickOptionalText(parsed.clarifyQuestion) ??
+        (parsed.mode === "clarify" ? DEFAULT_CLARIFY_QUESTION : undefined),
+      knowledgeHint: pickOptionalText(parsed.knowledgeHint),
+      taskHint: pickOptionalText(parsed.taskHint)
+    };
+  } catch {
+    // 大模型偶发返回非 JSON 时，统一降级到 clarify，
+    // 避免把自然语言段落误当成结构化决策继续往下游传。
+  }
+
+  return buildFallbackDecision();
+}
+
+function formatConversationContext(turns: ConversationContextTurn[] = []) {
+  if (turns.length === 0) {
+    return "最近对话上下文：无";
+  }
+
+  const lines = turns.map((turn) => `${turn.role}: ${turn.content}`);
+  return `最近对话上下文：\n${lines.join("\n")}`;
+}
+
+function normalizeClassifierInput(
+  input: string | ModelIntentClassifierInput
+): ModelIntentClassifierInput {
+  if (typeof input === "string") {
+    return {
+      query: input
+    };
+  }
+
+  return input;
 }
 
 function formatSiliconFlowLog(message: string) {
@@ -48,11 +139,13 @@ export function createModelIntentClassifier(
   const baseUrl = input.baseUrl.replace(/\/$/, "");
 
   return {
-    async classify(query: string) {
+    async classify(rawInput) {
+      const normalizedInput = normalizeClassifierInput(rawInput);
+
       try {
         console.info(
           formatSiliconFlowLog(
-            `request model="${input.model}" query="${query}"`
+            `request model="${input.model}" query="${normalizedInput.query}"`
           )
         );
 
@@ -60,30 +153,41 @@ export function createModelIntentClassifier(
           method: "POST",
           headers: {
             "Content-Type": "application/json",
-            Authorization: `Bearer ${input.apiKey}`,
+            Authorization: `Bearer ${input.apiKey}`
           },
           body: JSON.stringify({
             model: input.model,
             temperature: 0,
             response_format: {
-              type: "json_object",
+              type: "json_object"
             },
             messages: [
               {
                 role: "system",
-                content:
-                  '你是企业行政助手的意图分类器。只能输出 JSON，例如 {"intent":"knowledge_query"}。',
+                content: [
+                  "你是企业员工助手的决策引擎，只能输出 JSON。",
+                  'mode 只能是 knowledge、task、chat、clarify 其中之一。',
+                  "请结合最近对话上下文判断是否发生了话题切换。",
+                  "低置信度时不要硬判，应该返回 clarify。",
+                  "needKnowledge 和 needTaskResolution 用于告诉系统是否要调用工具。"
+                ].join("\n")
               },
               {
                 role: "user",
-                content: `请只判断这句话的意图：${query}`,
-              },
-            ],
-          }),
+                content: [
+                  formatConversationContext(
+                    normalizedInput.conversationContext ?? []
+                  ),
+                  `当前用户消息：${normalizedInput.query}`,
+                  "请直接返回 JSON 决策结果，不要输出额外解释。"
+                ].join("\n\n")
+              }
+            ]
+          })
         });
 
         if (!response.ok) {
-          return "unknown";
+          return buildFallbackDecision();
         }
 
         const payload = (await response.json()) as {
@@ -94,26 +198,31 @@ export function createModelIntentClassifier(
           }>;
         };
 
-        const intent = extractIntentFromContent(
+        const decision = extractDecisionFromContent(
           payload.choices?.[0]?.message?.content ?? ""
         );
 
         console.info(
-          formatSiliconFlowLog(`response intent=${intent} query="${query}"`)
-        );
-
-        return intent;
-      } catch {
-        // 模型调用属于兜底能力，异常时不能反向打断用户请求。
-        const reason = "network down";
-        console.warn(
           formatSiliconFlowLog(
-            `response intent=unknown query="${query}" reason="${reason}"`
+            `response mode=${decision.mode} query="${normalizedInput.query}"`
           )
         );
 
-        return "unknown";
+        return decision;
+      } catch {
+        // 模型调用属于决策层能力；一旦异常，直接回到轻量澄清，
+        // 让用户能继续对话，而不是被网络抖动打断整条链路。
+        const reason = "network down";
+        console.warn(
+          formatSiliconFlowLog(
+            `response mode=clarify query="${normalizedInput.query}" reason="${reason}"`
+          )
+        );
+
+        return buildFallbackDecision();
       }
-    },
+    }
   };
 }
+
+export { buildFallbackDecision, DEFAULT_CLARIFY_QUESTION };
