@@ -1,8 +1,60 @@
-import { describe, expect, it } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import { POST } from "./route";
 
+function buildDecisionPayload(query: string) {
+  if (query.includes("请假")) {
+    return {
+      mode: "task",
+      intentConfidence: 0.94,
+      needKnowledge: false,
+      needTaskResolution: true,
+      topicShift: false,
+      taskHint: "leave_application"
+    };
+  }
+
+  return {
+    mode: "knowledge",
+    intentConfidence: 0.93,
+    needKnowledge: true,
+    needTaskResolution: false,
+    topicShift: false,
+    knowledgeHint: "年假规则"
+  };
+}
+
 describe("POST /api/dingtalk/webhook", () => {
+  beforeEach(() => {
+    process.env.SILICONFLOW_API_KEY = "test-key";
+    process.env.SILICONFLOW_BASE_URL = "https://api.siliconflow.cn/v1";
+    process.env.SILICONFLOW_MODEL = "Qwen/Qwen3-8B";
+
+    vi.spyOn(globalThis, "fetch").mockImplementation(async (_input, init) => {
+      const requestBody = JSON.parse(String(init?.body ?? "{}")) as {
+        messages?: Array<{ content?: string }>;
+      };
+      const query = requestBody.messages?.[1]?.content?.split("当前用户消息：")[1]?.trim() ?? "";
+
+      return Response.json({
+        choices: [
+          {
+            message: {
+              content: JSON.stringify(buildDecisionPayload(query))
+            }
+          }
+        ]
+      });
+    });
+  });
+
+  afterEach(() => {
+    delete process.env.SILICONFLOW_API_KEY;
+    delete process.env.SILICONFLOW_BASE_URL;
+    delete process.env.SILICONFLOW_MODEL;
+    vi.restoreAllMocks();
+  });
+
   it("returns a task entry reply for a transactional request", async () => {
     const request = new Request("http://localhost/api/dingtalk/webhook", {
       method: "POST",

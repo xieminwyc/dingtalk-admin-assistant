@@ -9,7 +9,7 @@ type StreamMessagePayload = StreamTextPayload & {
 };
 
 type AssistantPort = {
-  reply(query: string): Promise<string>;
+  reply(input: string | { query: string; sessionId?: string }): Promise<string>;
 };
 
 type StreamReplyPort = {
@@ -60,7 +60,10 @@ export function createDingTalkStreamHandler(input: {
     }
 
     // sessionWebhook 是每次会话级别的回复入口，直接拿它把 assistant 回复送回钉钉。
-    const reply = await input.assistant.reply(message);
+    const reply = await input.assistant.reply({
+      query: message,
+      sessionId: payload.sessionWebhook
+    });
     await input.replier.replyMarkdown(payload.sessionWebhook, reply);
 
     return {

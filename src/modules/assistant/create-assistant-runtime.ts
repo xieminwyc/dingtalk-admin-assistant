@@ -6,6 +6,7 @@ import {
   createModelIntentClassifier,
   type ModelIntentClassifier
 } from "@/modules/intents/model-intent-classifier";
+import { ConversationContextService } from "@/modules/logging/conversation-context.service";
 import { ConversationLogRepository } from "@/modules/logging/conversation-log.repository";
 import {
   ExternalRagRetriever,
@@ -33,6 +34,7 @@ type AssistantRuntime = {
   externalRetriever?: KnowledgeRetriever;
   taskCatalog: TaskCatalogService;
   conversationLogger: ConversationLogRepository;
+  conversationContextService: ConversationContextService;
 };
 
 const runtimeEnvSchema = z.object({
@@ -86,6 +88,8 @@ function createLocalKnowledgeRetriever(): KnowledgeRetriever {
 
   return {
     async search(query, options) {
+      let fallbackKeywords: string[] = [];
+
       for (const candidate of buildKnowledgeFallbackQueries(query)) {
         const result = await cardRetriever.search(candidate, options);
 
@@ -93,14 +97,14 @@ function createLocalKnowledgeRetriever(): KnowledgeRetriever {
           return result;
         }
 
-        if (result.relatedKeywords.length > 0) {
-          return result;
+        if (fallbackKeywords.length === 0 && result.relatedKeywords.length > 0) {
+          fallbackKeywords = result.relatedKeywords;
         }
       }
 
       return {
         hits: [],
-        relatedKeywords: []
+        relatedKeywords: fallbackKeywords
       };
     }
   };
@@ -182,6 +186,9 @@ export function createAssistantRuntime(
   const localRetriever = createLocalKnowledgeRetriever();
   const taskCatalog = new TaskCatalogService(sampleTaskCatalog);
   const conversationLogger = new ConversationLogRepository();
+  const conversationContextService = new ConversationContextService(
+    conversationLogger
+  );
 
   const modelClassifier = isModelClassifierEnabled(env)
     ? createModelIntentClassifier({
@@ -212,6 +219,7 @@ export function createAssistantRuntime(
     externalRetriever,
     taskCatalog,
     conversationLogger,
+    conversationContextService,
     // handoff 目前仍由 request-router 内部调用 `evaluateHandoff`，
     // 这里不额外包装成新 service，避免为了“组装完整”引入空抽象。
     assistant: createAssistantService({
@@ -219,7 +227,9 @@ export function createAssistantRuntime(
       taskCatalog,
       externalRetriever,
       enableExternalKnowledge: Boolean(externalRetriever),
-      analyzer
+      analyzer,
+      conversationLogger,
+      conversationContextService
     })
   };
 }

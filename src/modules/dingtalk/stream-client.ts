@@ -11,7 +11,7 @@ import { createDingTalkStreamHandler } from "./stream-handler";
 // assistant 的最小能力约束：给它一句用户问题，它返回一句最终回复。
 // 这里故意只依赖 reply，而不关心底层是 FAQ、数据库还是外部模型。
 type AssistantPort = {
-  reply(query: string): Promise<string>;
+  reply(input: string | { query: string; sessionId?: string }): Promise<string>;
 };
 
 // 回消息的抽象端口。

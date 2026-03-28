@@ -294,4 +294,69 @@ describe("createAssistantService", () => {
 
     expect(reply).toContain("请再具体描述一下问题");
   });
+
+  it("loads session context for the analyzer and persists both user and assistant messages", async () => {
+    const append = vi.fn(async () => undefined);
+    const loadRecentContext = vi.fn(async () => [
+      { role: "user" as const, content: "你能做什么？" },
+      { role: "assistant" as const, content: "我可以帮你查制度、找办理入口。" }
+    ]);
+    const analyzer: IntentAnalyzer = {
+      async analyze(input) {
+        expect(input).toEqual({
+          query: "那请假怎么申请",
+          conversationContext: [
+            { role: "user", content: "你能做什么？" },
+            { role: "assistant", content: "我可以帮你查制度、找办理入口。" }
+          ]
+        });
+
+        return {
+          intent: "task_request",
+          source: "model"
+        };
+      }
+    };
+
+    const assistant = createAssistantService({
+      localRetriever: {
+        async search() {
+          throw new Error("retriever should not be called for task");
+        }
+      },
+      analyzer,
+      taskCatalog: createTaskCatalog(),
+      conversationContextService: {
+        loadRecentContext
+      },
+      conversationLogger: {
+        append
+      }
+    });
+
+    const reply = await assistant.reply({
+      query: "那请假怎么申请",
+      sessionId: "session-1"
+    });
+
+    expect(reply).toContain("事务入口");
+    expect(loadRecentContext).toHaveBeenCalledWith("session-1", {
+      maxTurns: 6,
+      ttlMs: 1800000
+    });
+    expect(append).toHaveBeenCalledTimes(2);
+    expect(append.mock.calls[0]?.[0]).toMatchObject({
+      sessionId: "session-1",
+      conversationId: "session-1",
+      role: "user",
+      content: "那请假怎么申请",
+      routeType: "task_request"
+    });
+    expect(append.mock.calls[1]?.[0]).toMatchObject({
+      sessionId: "session-1",
+      conversationId: "session-1",
+      role: "assistant",
+      routeType: "task_request"
+    });
+  });
 });
