@@ -132,6 +132,32 @@ function formatSiliconFlowLog(message: string) {
   return `[siliconflow] ${message}`;
 }
 
+function buildDecisionSystemPrompt() {
+  return [
+    "你是企业员工助手的决策引擎，只能输出 JSON。",
+    'mode 只能是 knowledge、task、chat、clarify 其中之一。',
+    "意图判断只看用户当前想做什么，不要根据你自己是否知道答案来决定 mode。",
+    "请结合最近对话上下文判断是否发生了话题切换。",
+    "低置信度时不要硬判，应该返回 clarify。",
+    "needKnowledge 和 needTaskResolution 用于告诉系统是否要调用工具。",
+    "询问规则、制度、说明、标准、口径、区别、适用范围，优先判断为 knowledge。",
+    "短的制度名词短语也优先判断为 knowledge，例如：迟到扣款、病假工资、年假天数、餐补标准、加班调休、考勤制度。",
+    "像“迟到扣款制度说明”“病假工资怎么算”“年假天数”“迟到打卡怎么算”这类表达，即使不是完整问句，也通常是在查制度知识。",
+    "这类表达优先判断为 knowledge，不要因为句子短就直接进入 clarify。",
+    "不要因为自己不知道答案、知识库可能暂时没有命中、或者制度细节可能因公司而异，就把本来是知识查询的问题判成 clarify。",
+    "只有当用户指代不明、问题目标不清晰、或者同一句话可能同时落入多种模式且没有足够上下文时，才返回 clarify。",
+    "只有在你无法判断用户是在查制度、办事务还是闲聊时，才返回 clarify。",
+    "few-shot 示例：",
+    '用户：“迟到扣款” -> {"mode":"knowledge","intentConfidence":0.9,"needKnowledge":true,"needTaskResolution":false,"topicShift":false,"knowledgeHint":"迟到扣款制度"}',
+    '用户：“迟到打卡怎么算” -> {"mode":"knowledge","intentConfidence":0.92,"needKnowledge":true,"needTaskResolution":false,"topicShift":false,"knowledgeHint":"迟到打卡制度"}',
+    '用户：“迟到扣款制度说明” -> {"mode":"knowledge","intentConfidence":0.92,"needKnowledge":true,"needTaskResolution":false,"topicShift":false,"knowledgeHint":"迟到扣款制度"}',
+    '用户：“病假工资” -> {"mode":"knowledge","intentConfidence":0.9,"needKnowledge":true,"needTaskResolution":false,"topicShift":false,"knowledgeHint":"病假工资制度"}',
+    '用户：“我要请假” -> {"mode":"task","intentConfidence":0.95,"needKnowledge":false,"needTaskResolution":true,"topicShift":false,"taskHint":"leave_application"}',
+    '用户：“你是谁” -> {"mode":"chat","intentConfidence":0.95,"needKnowledge":false,"needTaskResolution":false,"topicShift":false}',
+    '用户：“这个怎么办” -> {"mode":"clarify","intentConfidence":0.3,"needKnowledge":false,"needTaskResolution":false,"topicShift":false,"clarifyQuestion":"你是想查制度说明，还是想办理流程？"}'
+  ].join("\n");
+}
+
 export function createModelIntentClassifier(
   input: CreateModelIntentClassifierInput
 ): ModelIntentClassifier {
@@ -164,13 +190,7 @@ export function createModelIntentClassifier(
             messages: [
               {
                 role: "system",
-                content: [
-                  "你是企业员工助手的决策引擎，只能输出 JSON。",
-                  'mode 只能是 knowledge、task、chat、clarify 其中之一。',
-                  "请结合最近对话上下文判断是否发生了话题切换。",
-                  "低置信度时不要硬判，应该返回 clarify。",
-                  "needKnowledge 和 needTaskResolution 用于告诉系统是否要调用工具。"
-                ].join("\n")
+                content: buildDecisionSystemPrompt()
               },
               {
                 role: "user",
