@@ -7,12 +7,19 @@ export type ConversationLogRouteType =
   | "smalltalk"
   | "unknown";
 
+export type ConversationLogRole = "user" | "assistant";
+
 export type ConversationLogRecord = {
   id: string;
   conversationId: string;
+  // sessionId 明确代表“同一次连续会话”的上下文边界；
+  // 先和 conversationId 并存，避免一口气改动所有旧调用方。
+  sessionId: string;
   messageId: string;
   userId: string;
   query: string;
+  content: string;
+  role: ConversationLogRole;
   // routeType 记录的是“这条消息最后被分到哪一类路由”。
   routeType: ConversationLogRouteType;
   // Prisma 读出来会用 null 表示“没有值”，所以输出契约现在就直接写成 null，
@@ -28,13 +35,17 @@ export type ConversationLogRecord = {
 
 export type ConversationLogAppendInput = {
   conversationId: string;
+  sessionId: string;
   messageId: string;
   userId: string;
   query: string;
+  content: string;
+  role: ConversationLogRole;
   routeType: ConversationLogRouteType;
   routeConfidence?: number;
   knowledgeCardId?: string;
   taskCatalogItemId?: string;
+  referenceLabel?: string;
 };
 
 // 仓库边界只暴露 append 和按会话查询两种能力，
@@ -42,4 +53,5 @@ export type ConversationLogAppendInput = {
 export interface ConversationLogRepositoryLike {
   append(input: ConversationLogAppendInput): Promise<ConversationLogRecord>;
   listByConversationId(conversationId: string): Promise<ConversationLogRecord[]>;
+  listBySessionId(sessionId: string): Promise<ConversationLogRecord[]>;
 }

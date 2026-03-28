@@ -31,9 +31,12 @@ export class ConversationLogRepository implements ConversationLogRepositoryLike 
     const record: StoredConversationLogRecord = {
       id: randomUUID(),
       conversationId: input.conversationId,
+      sessionId: input.sessionId,
       messageId: input.messageId,
       userId: input.userId,
       query: input.query,
+      content: input.content,
+      role: input.role,
       routeType: input.routeType,
       // 内部先统一归一成 null，避免上层以后接 Prisma 时再经历一次 undefined -> null 的暗转。
       routeConfidence: input.routeConfidence ?? null,
@@ -56,19 +59,29 @@ export class ConversationLogRepository implements ConversationLogRepositoryLike 
   ): Promise<ConversationLogRecord[]> {
     return this.records
       .filter((record) => record.conversationId === conversationId)
-      // 查询语义固定为按 createdAt 升序返回；
-      // 如果时间一样，就用 append 顺序兜底，避免同一毫秒内的顺序漂移。
-      .sort((left, right) => {
-        const timeDelta = left.createdAt.getTime() - right.createdAt.getTime();
-
-        if (timeDelta !== 0) {
-          return timeDelta;
-        }
-
-        return left.sequence - right.sequence;
-      })
+      .sort(compareConversationLogRecords)
       .map(cloneRecord);
   }
+
+  async listBySessionId(sessionId: string): Promise<ConversationLogRecord[]> {
+    return this.records
+      .filter((record) => record.sessionId === sessionId)
+      .sort(compareConversationLogRecords)
+      .map(cloneRecord);
+  }
+}
+
+function compareConversationLogRecords(
+  left: StoredConversationLogRecord,
+  right: StoredConversationLogRecord
+) {
+  const timeDelta = left.createdAt.getTime() - right.createdAt.getTime();
+
+  if (timeDelta !== 0) {
+    return timeDelta;
+  }
+
+  return left.sequence - right.sequence;
 }
 
 export type {
