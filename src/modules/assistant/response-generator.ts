@@ -56,6 +56,7 @@ function formatResolutionFacts(resolution: AssistantResolution) {
         "mode: clarify",
         `prompt: ${resolution.prompt}`,
         `reason: ${resolution.reason ?? "无"}`,
+        `reasonCode: ${resolution.reasonCode ?? "无"}`,
         `relatedKeywords: ${resolution.relatedKeywords?.join("、") ?? "无"}`
       ].join("\n");
     case "smalltalk":
@@ -121,9 +122,14 @@ export function createResponseGenerator(
                 role: "system",
                 content: [
                   "你是企业员工助手的回复生成器，请基于事实生成自然、简洁的中文回复。",
+                  "你是公司内部员工助手，不要询问用户公司名称，也不要假装自己是互联网搜索引擎。",
                   "Facts from providers are authoritative; do not invent links or policies.",
+                  "如果工具没有给出事实，严禁编造制度、链接或联系人。",
                   "如果有 referenceLabel，请优先自然引用来源。",
-                  "如果是 clarify，只问当前最关键的补充问题。"
+                  "如果是 clarify，只问当前最关键的补充问题。",
+                  "如果 clarify 带有 relatedKeywords，优先使用工具提供的 relatedKeywords 引导用户。",
+                  "如果 clarify 的 reasonCode 是 no_candidate 且没有 relatedKeywords，就建议用户换关键词或联系行政/HR，不要追问无关信息。",
+                  "如果上一轮已经表达过未命中，请换一种说法，不要机械重复。"
                 ].join("\n")
               },
               {

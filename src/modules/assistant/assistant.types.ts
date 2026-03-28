@@ -41,6 +41,9 @@ export type AssistantClarificationResolution = {
   intent: AssistantIntentByKind["clarification"];
   prompt: string;
   reason?: string;
+  // reasonCode 用来告诉回复层“为什么这次没有形成稳定答案”，
+  // 这样生成器就能区分“完全没候选”还是“有候选但不够可靠”。
+  reasonCode?: "no_candidate" | "low_confidence" | "need_disambiguation";
   relatedKeywords?: string[];
   handoff?: HandoffDecision;
 };

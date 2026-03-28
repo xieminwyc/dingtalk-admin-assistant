@@ -33,6 +33,7 @@ export type RequestRouteInput = {
 export function buildClarificationResolution(input?: {
   prompt?: string;
   reason?: string;
+  reasonCode?: "no_candidate" | "low_confidence" | "need_disambiguation";
   relatedKeywords?: string[];
 }): AssistantResolution {
   return {
@@ -40,6 +41,7 @@ export function buildClarificationResolution(input?: {
     intent: "unknown",
     prompt: input?.prompt ?? DEFAULT_CLARIFICATION_PROMPT,
     reason: input?.reason,
+    reasonCode: input?.reasonCode,
     relatedKeywords: input?.relatedKeywords
   };
 }
@@ -130,8 +132,12 @@ export function createRequestRouter(input: {
           });
 
           if (handoff.required || !hits[0]) {
+            // 这里显式区分“完全没候选”和“有候选但不够可靠”，
+            // 方便回复层决定是优先给相近建议，还是提醒用户当前答案不够稳。
+            const reasonCode = !hits[0] ? "no_candidate" : "low_confidence";
             return buildClarificationResolution({
               reason: handoff.reason,
+              reasonCode,
               relatedKeywords: knowledgeResult.relatedKeywords
             });
           }

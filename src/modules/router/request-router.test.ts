@@ -270,6 +270,69 @@ describe("createRequestRouter", () => {
     });
   });
 
+  it("returns a no-candidate clarification with related keywords when knowledge misses", async () => {
+    const localRetriever: KnowledgeRetriever = {
+      search: vi.fn().mockResolvedValue({
+        hits: [],
+        relatedKeywords: ["会议室预订", "权限申请说明"]
+      } satisfies KnowledgeSearchResult)
+    };
+    const router = createRequestRouter({
+      localRetriever,
+      taskCatalog: createTaskCatalogStub()
+    });
+
+    const resolution = await router.route({
+      query: "迟到扣钱制度",
+      intent: buildIntent("knowledge_query")
+    });
+
+    expect(resolution).toEqual({
+      kind: "clarification",
+      intent: "unknown",
+      prompt: "我可以帮你查制度说明，或告诉你办理入口。请再具体描述一下问题。",
+      reason: "当前未找到可靠知识，请联系行政同学。",
+      reasonCode: "no_candidate",
+      relatedKeywords: ["会议室预订", "权限申请说明"]
+    });
+  });
+
+  it("returns a low-confidence clarification when top knowledge hit is not reliable enough", async () => {
+    const localRetriever: KnowledgeRetriever = {
+      search: vi.fn().mockResolvedValue({
+        hits: [
+          {
+            id: "card-low-score",
+            title: "会议制度",
+            question: "会议制度",
+            answer: "一条不够可靠的制度说明。",
+            score: 0.45,
+            source: "seed"
+          }
+        ],
+        relatedKeywords: ["会议室预订"]
+      } satisfies KnowledgeSearchResult)
+    };
+    const router = createRequestRouter({
+      localRetriever,
+      taskCatalog: createTaskCatalogStub()
+    });
+
+    const resolution = await router.route({
+      query: "会议制度",
+      intent: buildIntent("knowledge_query")
+    });
+
+    expect(resolution).toEqual({
+      kind: "clarification",
+      intent: "unknown",
+      prompt: "我可以帮你查制度说明，或告诉你办理入口。请再具体描述一下问题。",
+      reason: "当前未找到可靠知识，请联系行政同学。",
+      reasonCode: "low_confidence",
+      relatedKeywords: ["会议室预订"]
+    });
+  });
+
   it("falls back to local knowledge when external provider throws", async () => {
     const localRetriever = buildLocalKnowledgeRetriever();
     const externalRetriever: KnowledgeRetriever = {

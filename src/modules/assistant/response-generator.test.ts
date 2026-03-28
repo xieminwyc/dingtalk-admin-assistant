@@ -106,4 +106,52 @@ describe("createResponseGenerator", () => {
       })
     ).resolves.toBeNull();
   });
+
+  it("locks the assistant identity and no-hit guidance into the generation prompt", async () => {
+    const fetchMock = vi.fn().mockResolvedValue({
+      ok: true,
+      json: async () => ({
+        choices: [
+          {
+            message: {
+              content:
+                "我暂时没检索到完全对应的制度。你是想看会议室预订，还是权限申请说明？"
+            }
+          }
+        ]
+      })
+    });
+    const generator = createResponseGenerator({
+      apiKey: "test-key",
+      baseUrl: "https://api.siliconflow.cn/v1",
+      model: "Qwen/Qwen3-8B",
+      fetch: fetchMock
+    });
+
+    await generator.generate({
+      query: "迟到扣钱制度",
+      resolution: {
+        kind: "clarification",
+        intent: "unknown",
+        prompt: "我暂时没找到完全对应的制度。",
+        reason: "当前未找到可靠知识，请联系行政同学。",
+        reasonCode: "no_candidate",
+        relatedKeywords: ["会议室预订", "权限申请说明"]
+      }
+    });
+
+    const requestBody = JSON.parse(String(fetchMock.mock.calls[0]?.[1]?.body)) as {
+      messages: Array<{ content: string }>;
+    };
+
+    expect(requestBody.messages[0]?.content).toContain("不要询问用户公司名称");
+    expect(requestBody.messages[0]?.content).toContain("优先使用工具提供的 relatedKeywords");
+    expect(requestBody.messages[0]?.content).toContain(
+      "如果工具没有给出事实，严禁编造制度、链接或联系人"
+    );
+    expect(requestBody.messages[1]?.content).toContain("reasonCode: no_candidate");
+    expect(requestBody.messages[1]?.content).toContain(
+      "relatedKeywords: 会议室预订、权限申请说明"
+    );
+  });
 });

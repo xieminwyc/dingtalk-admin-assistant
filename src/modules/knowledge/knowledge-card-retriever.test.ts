@@ -57,12 +57,20 @@ describe("KnowledgeCardRetriever", () => {
     expect(result.hits[0]?.score).toBeGreaterThan(result.hits[1]?.score ?? 0);
   });
 
-  it("returns related keywords when nothing matches exactly", async () => {
+  it("returns a fuzzy hit when the query clearly points to an existing card", async () => {
     const result = await retriever.search("会议室怎么预订");
+
+    expect(result.hits).toHaveLength(1);
+    expect(result.hits[0]?.title).toBe("会议室预订");
+    expect(result.hits[0]?.score).toBeGreaterThanOrEqual(0.7);
+    expect(result.relatedKeywords).toEqual([]);
+  });
+
+  it("returns related keywords when there is no confident card match", async () => {
+    const result = await retriever.search("会议室制度");
 
     expect(result.hits).toEqual([]);
     expect(result.relatedKeywords).toContain("会议室预订");
-    expect(result.relatedKeywords).toContain("预订");
   });
 
   it("returns no hits for unrelated queries", async () => {
