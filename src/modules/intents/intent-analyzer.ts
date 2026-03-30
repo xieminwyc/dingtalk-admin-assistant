@@ -1,4 +1,5 @@
 import type { ConversationContextTurn } from "../logging/conversation-context.service";
+import type { EntryMode } from "../assistant/entry-mode.types";
 import type { IntentType } from "./intent.types";
 import type { AssistantDecision } from "./intent.types";
 import {
@@ -17,6 +18,7 @@ export type IntentAnalysis = AssistantDecision & {
 export type AnalyzeIntentInput = {
   query: string;
   conversationContext?: ConversationContextTurn[];
+  entryMode?: EntryMode;
 };
 
 export type IntentAnalyzer = {

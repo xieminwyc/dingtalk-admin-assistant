@@ -129,6 +129,39 @@ describe("createAssistantService", () => {
     expect(reply).toContain("中轴线");
   });
 
+  it("passes entryMode to the analyzer input", async () => {
+    const localRetriever: KnowledgeRetriever = {
+      async search() {
+        throw new Error("retriever should not be called for writing mode");
+      }
+    };
+    const analyzer: IntentAnalyzer = {
+      analyze: vi.fn().mockResolvedValue(buildIntentAnalysis("open_response"))
+    };
+
+    const assistant = createAssistantService({
+      localRetriever,
+      analyzer,
+      taskCatalog: createTaskCatalog(),
+      responseGenerator: {
+        generate: vi.fn().mockResolvedValue("这是一份周报初稿。")
+      }
+    });
+
+    await assistant.reply({
+      query: "帮我写一份周报",
+      sessionId: "s-1",
+      entryMode: "writing"
+    });
+
+    expect(analyzer.analyze).toHaveBeenCalledWith(
+      expect.objectContaining({
+        query: "帮我写一份周报",
+        entryMode: "writing"
+      })
+    );
+  });
+
   it("treats legacy handoff-style requests as clarification in contextual mode", async () => {
     const localRetriever: KnowledgeRetriever = {
       async search() {

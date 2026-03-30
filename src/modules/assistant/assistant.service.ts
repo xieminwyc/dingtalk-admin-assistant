@@ -1,5 +1,6 @@
 import { randomUUID } from "node:crypto";
 
+import type { EntryMode } from "./entry-mode.types";
 import type { IntentAnalyzer } from "../intents/intent-analyzer";
 import type { IntentAnalysis } from "../intents/intent-analyzer";
 import type { ConversationContextTurn } from "../logging/conversation-context.service";
@@ -19,6 +20,7 @@ export type AssistantReplyInput = {
   sessionId?: string;
   conversationId?: string;
   userId?: string;
+  entryMode?: EntryMode;
 };
 
 export type AssistantDebugReply = {
@@ -156,7 +158,8 @@ export function createAssistantService(input: {
       try {
         intent = await input.analyzer.analyze({
           query: replyInput.query,
-          conversationContext
+          conversationContext,
+          entryMode: replyInput.entryMode
         });
       } catch {
         // analyzer 失效时不继续猜测路由，直接返回保守澄清，

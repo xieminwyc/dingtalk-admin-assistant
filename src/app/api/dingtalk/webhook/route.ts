@@ -1,4 +1,5 @@
 import { createAssistantRuntime } from "@/modules/assistant/create-assistant-runtime";
+import type { EntryMode } from "@/modules/assistant/entry-mode.types";
 
 export const runtime = "nodejs";
 
@@ -17,6 +18,7 @@ function getAssistantRuntime() {
 type DingTalkWebhookPayload = {
   sessionId?: string;
   debug?: boolean;
+  entryMode?: EntryMode;
   text?: {
     content?: string;
   };
@@ -43,7 +45,8 @@ export async function POST(request: Request) {
     query: message,
     // webhook 调试入口默认允许显式透传 sessionId；
     // 没给时就落到一个固定调试会话，方便本地连续调试上下文。
-    sessionId: body.sessionId ?? "webhook-debug-session"
+    sessionId: body.sessionId ?? "webhook-debug-session",
+    entryMode: body.entryMode
   };
 
   if (body.debug) {
