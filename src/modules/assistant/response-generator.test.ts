@@ -193,4 +193,42 @@ describe("createResponseGenerator", () => {
       "relatedKeywords: 会议室预订、权限申请说明"
     );
   });
+
+  it("adds an enterprise writing hint when entryMode is writing", async () => {
+    const fetchMock = vi.fn().mockResolvedValue({
+      ok: true,
+      json: async () => ({
+        choices: [
+          {
+            message: {
+              content: "这是本周项目周报初稿。"
+            }
+          }
+        ]
+      })
+    });
+    const generator = createResponseGenerator({
+      apiKey: "test-key",
+      baseUrl: "https://api.siliconflow.cn/v1",
+      model: "Qwen/Qwen3-8B",
+      fetch: fetchMock
+    });
+
+    await generator.generate({
+      query: "帮我写一份项目周报",
+      entryMode: "writing",
+      resolution: {
+        kind: "open_response",
+        intent: "smalltalk",
+        reply: "帮我写一份项目周报"
+      }
+    });
+
+    const requestBody = JSON.parse(String(fetchMock.mock.calls[0]?.[1]?.body)) as {
+      messages: Array<{ content: string }>;
+    };
+
+    expect(requestBody.messages[0]?.content).toContain("企业写作");
+    expect(requestBody.messages[1]?.content).toContain("entryMode: writing");
+  });
 });

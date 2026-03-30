@@ -3,6 +3,7 @@ import type { HandoffDecision } from "../handoff/handoff.service";
 type AssistantIntentByKind = {
   knowledge: "knowledge_query";
   task: "task_request";
+  contact: "handoff_request";
   handoff: "handoff_request";
   clarification: "unknown";
   open_response: "smalltalk";
@@ -28,6 +29,16 @@ export type AssistantTaskResolution = {
   actionType?: "url" | "api";
   availability?: "available" | "unavailable" | "unknown";
   availabilityReason?: string;
+};
+
+export type AssistantContactResolution = {
+  kind: "contact";
+  intent: AssistantIntentByKind["contact"];
+  title: string;
+  contactName: string;
+  team?: string;
+  description: string;
+  actionHint?: string;
 };
 
 export type AssistantHandoffResolution = {
@@ -57,6 +68,7 @@ export type AssistantOpenResponseResolution = {
 export type AssistantResolution =
   | AssistantKnowledgeResolution
   | AssistantTaskResolution
+  | AssistantContactResolution
   | AssistantHandoffResolution
   | AssistantClarificationResolution
   | AssistantOpenResponseResolution;

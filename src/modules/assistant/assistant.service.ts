@@ -12,6 +12,7 @@ import type { ResponseGenerator } from "./response-generator";
 import {
   buildClarificationResolution,
   createRequestRouter,
+  type ContactDirectoryResolver,
   type TaskCatalogResolver
 } from "../router/request-router";
 
@@ -83,6 +84,7 @@ export function createAssistantService(input: {
   localRetriever: KnowledgeRetriever;
   // service 只依赖最小解析接口，避免把编排层绑死在具体目录实现上。
   taskCatalog: TaskCatalogResolver;
+  contactDirectory?: ContactDirectoryResolver;
   externalRetriever?: KnowledgeRetriever;
   enableExternalKnowledge?: boolean;
   analyzer?: IntentAnalyzer;
@@ -93,6 +95,7 @@ export function createAssistantService(input: {
   const router = createRequestRouter({
     localRetriever: input.localRetriever,
     taskCatalog: input.taskCatalog,
+    contactDirectory: input.contactDirectory,
     externalRetriever: input.externalRetriever,
     enableExternalKnowledge: input.enableExternalKnowledge
   });
@@ -182,6 +185,7 @@ export function createAssistantService(input: {
     const resolvedIntent = intent ?? buildDefaultIntentAnalysis();
     const resolution = await router.route({
       query: replyInput.query,
+      entryMode: replyInput.entryMode,
       intent: resolvedIntent,
       // taskHint 是决策器给事务 provider 的结构化提示，
       // 现在先直接透传给旧 router，帮助事务命中更稳定。
@@ -190,6 +194,7 @@ export function createAssistantService(input: {
     const generatedReply = input.responseGenerator
       ? await input.responseGenerator.generate({
           query: replyInput.query,
+          entryMode: replyInput.entryMode,
           conversationContext,
           resolution
         })

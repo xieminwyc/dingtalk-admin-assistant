@@ -1,4 +1,6 @@
+import type { EntryMode } from "../assistant/entry-mode.types";
 import type { AssistantResolution } from "../assistant/assistant.types";
+import type { ContactDirectoryResolution } from "../contacts/contact-directory.types";
 import { evaluateHandoff } from "../handoff/handoff.service";
 import type { IntentAnalysis } from "../intents/intent-analyzer";
 import type {
@@ -21,9 +23,14 @@ export interface TaskCatalogResolver {
   resolve(input: TaskCatalogResolveInput): TaskCatalogResolution;
 }
 
+export interface ContactDirectoryResolver {
+  resolve(input: { query: string }): ContactDirectoryResolution | null;
+}
+
 export type RequestRouteInput = {
   query: string;
   intent: IntentAnalysis;
+  entryMode?: EntryMode;
   // 给后续任务来源保留轻量扩展位：如果上游已经拿到结构化 taskType，就直接透传。
   taskType?: string;
 };
@@ -54,6 +61,20 @@ function buildKnowledgeResolution(hit: KnowledgeHit): AssistantResolution {
     answer: hit.answer,
     scope: hit.scope,
     referenceLabel: hit.referenceLabel
+  };
+}
+
+function buildContactResolution(
+  resolution: ContactDirectoryResolution
+): AssistantResolution {
+  return {
+    kind: "contact",
+    intent: "handoff_request",
+    title: resolution.title,
+    contactName: resolution.contactName,
+    team: resolution.team,
+    description: resolution.description,
+    actionHint: resolution.actionHint
   };
 }
 
@@ -112,11 +133,31 @@ async function searchKnowledge(input: {
 export function createRequestRouter(input: {
   localRetriever: KnowledgeRetriever;
   taskCatalog: TaskCatalogResolver;
+  contactDirectory?: ContactDirectoryResolver;
   externalRetriever?: KnowledgeRetriever;
   enableExternalKnowledge?: boolean;
 }) {
   return {
     async route(request: RequestRouteInput): Promise<AssistantResolution> {
+      if (request.entryMode === "image_placeholder") {
+        return {
+          kind: "open_response",
+          intent: "smalltalk",
+          reply:
+            "图片生成功能即将支持。你可以先告诉我主题、风格和使用场景，我可以先帮你整理提示词。"
+        };
+      }
+
+      if (request.entryMode === "contact" && input.contactDirectory) {
+        const contact = input.contactDirectory.resolve({
+          query: request.query
+        });
+
+        if (contact) {
+          return buildContactResolution(contact);
+        }
+      }
+
       switch (request.intent.mode) {
         case "internal_knowledge": {
           const knowledgeResult = await searchKnowledge({

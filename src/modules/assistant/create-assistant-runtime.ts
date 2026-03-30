@@ -269,6 +269,7 @@ export function createAssistantRuntime(
     assistant: createAssistantService({
       localRetriever,
       taskCatalog,
+      contactDirectory,
       externalRetriever,
       enableExternalKnowledge: Boolean(externalRetriever),
       analyzer,

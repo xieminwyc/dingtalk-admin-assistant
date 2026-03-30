@@ -1,7 +1,9 @@
 import type { AssistantResolution } from "./assistant.types";
+import type { EntryMode } from "./entry-mode.types";
 
 type ResponseGeneratorInput = {
   query: string;
+  entryMode?: EntryMode;
   conversationContext?: Array<{
     role: "user" | "assistant";
     content: string;
@@ -50,6 +52,15 @@ function formatResolutionFacts(resolution: AssistantResolution) {
         `guidance: ${resolution.guidance ?? "请按入口提示继续办理"}`,
         `availability: ${resolution.availability ?? "unknown"}`,
         `availabilityReason: ${resolution.availabilityReason ?? "无"}`
+      ].join("\n");
+    case "contact":
+      return [
+        "mode: contact",
+        `title: ${resolution.title}`,
+        `contactName: ${resolution.contactName}`,
+        `team: ${resolution.team ?? "无"}`,
+        `description: ${resolution.description}`,
+        `actionHint: ${resolution.actionHint ?? "无"}`
       ].join("\n");
     case "clarification":
       return [
@@ -132,14 +143,20 @@ export function createResponseGenerator(
                   "如果是 clarify，只问当前最关键的补充问题。",
                   "如果 clarify 带有 relatedKeywords，优先使用工具提供的 relatedKeywords 引导用户。",
                   "如果 clarify 的 reasonCode 是 no_candidate 且没有 relatedKeywords，就建议用户换关键词或联系行政/HR，不要追问无关信息。",
-                  "如果上一轮已经表达过未命中，请换一种说法，不要机械重复。"
-                ].join("\n")
+                  "如果上一轮已经表达过未命中，请换一种说法，不要机械重复。",
+                  generatorInput.entryMode === "writing"
+                    ? "当前 entryMode 是 writing，请按企业写作场景输出更像成稿的中文内容。"
+                    : undefined
+                ]
+                  .filter(Boolean)
+                  .join("\n")
               },
               {
                 role: "user",
                 content: [
                   formatConversationContext(generatorInput.conversationContext),
                   `当前用户消息：${generatorInput.query}`,
+                  `entryMode: ${generatorInput.entryMode ?? "none"}`,
                   "工具事实如下：",
                   formatResolutionFacts(generatorInput.resolution)
                 ].join("\n\n")

@@ -55,6 +55,24 @@ function formatTaskReply(input: {
   return lines.join("\n");
 }
 
+function formatContactReply(input: {
+  contactName: string;
+  team?: string;
+  description: string;
+  actionHint?: string;
+}) {
+  return [
+    "对接建议",
+    input.contactName,
+    input.team ? `团队：${input.team}` : undefined,
+    "",
+    input.description,
+    input.actionHint ? `建议动作：${input.actionHint}` : undefined
+  ]
+    .filter(Boolean)
+    .join("\n");
+}
+
 function formatClarificationReply(input: {
   prompt: string;
   reason?: string;
@@ -81,6 +99,8 @@ function buildReplyFromResolution(input: AssistantResolution) {
       return formatKnowledgeReply(input);
     case "task":
       return formatTaskReply(input);
+    case "contact":
+      return formatContactReply(input);
     case "clarification":
       return formatClarificationReply(input);
     case "handoff":

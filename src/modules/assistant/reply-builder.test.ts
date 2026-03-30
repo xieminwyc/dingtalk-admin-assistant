@@ -3,6 +3,7 @@ import { describe, expect, expectTypeOf, it } from "vitest";
 import type { AssistantMode } from "../intents/intent.types";
 import type {
   AssistantClarificationResolution,
+  AssistantContactResolution,
   AssistantKnowledgeResolution,
   AssistantTaskResolution
 } from "./assistant.types";
@@ -82,5 +83,21 @@ describe("buildAssistantReply", () => {
     });
 
     expect(reply).toContain("今天想聊点什么");
+  });
+
+  it("builds a contact reply", () => {
+    const reply = buildAssistantReply({
+      kind: "contact",
+      intent: "handoff_request",
+      title: "PMS 制卡问题",
+      contactName: "门店系统支持同学",
+      team: "门店系统支持",
+      description: "负责 PMS 制卡和门卡问题。",
+      actionHint: "建议先准备门店名称和报错信息。"
+    } satisfies AssistantContactResolution);
+
+    expect(reply).toContain("对接建议");
+    expect(reply).toContain("门店系统支持同学");
+    expect(reply).toContain("报错信息");
   });
 });
