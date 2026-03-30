@@ -3,35 +3,9 @@
 import type { ChangeEvent, KeyboardEvent } from "react";
 import { useRef, useState } from "react";
 
-type DebugIntent = {
-  mode?: string;
-  source?: string;
-  toolPlan?: string;
-  knowledgeHint?: string;
-  taskHint?: string;
-};
+import type { EntryMode } from "@/modules/assistant/entry-mode.types";
 
-type DebugResolution = {
-  kind?: string;
-  intent?: string;
-  referenceLabel?: string;
-  reason?: string;
-  reasonCode?: string;
-  relatedKeywords?: string[];
-  title?: string;
-};
-
-type DebugTurn = {
-  role: "user" | "assistant";
-  content: string;
-};
-
-type DebugPayload = {
-  conversationContext?: DebugTurn[];
-  intent?: DebugIntent;
-  resolution?: DebugResolution;
-  usedResponseGenerator?: boolean;
-};
+import { homeEntryCards, quickLinks, recommendedTeammates } from "./home-config";
 
 type ChatEntry = {
   id: string;
@@ -40,19 +14,33 @@ type ChatEntry = {
 };
 
 type WebhookReply = {
-  reply: string;
-  debug?: DebugPayload;
+  reply?: string;
+  error?: string;
 };
 
 function createSessionId() {
-  return `debug-${Math.random().toString(36).slice(2, 10)}`;
+  return `home-${Math.random().toString(36).slice(2, 10)}`;
+}
+
+function buildGreeting() {
+  const hour = new Date().getHours();
+
+  if (hour < 12) {
+    return "早上好";
+  }
+
+  if (hour < 18) {
+    return "下午好";
+  }
+
+  return "晚上好";
 }
 
 export default function Home() {
   const [sessionId] = useState(createSessionId);
   const [draft, setDraft] = useState("");
   const [messages, setMessages] = useState<ChatEntry[]>([]);
-  const [debug, setDebug] = useState<DebugPayload | null>(null);
+  const [activeEntryMode, setActiveEntryMode] = useState<EntryMode | null>(null);
   const [isSending, setIsSending] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const textareaRef = useRef<HTMLTextAreaElement | null>(null);
@@ -62,31 +50,51 @@ export default function Home() {
       return;
     }
 
-    // 输入框默认保持单行高度；只有真的换行时，才按内容自然撑开。
     textareaRef.current.style.height = "0px";
     textareaRef.current.style.height = `${textareaRef.current.scrollHeight}px`;
   }
 
-  async function handleSend() {
-    const message = draft.trim();
+  function focusComposer() {
+    textareaRef.current?.focus();
+  }
+
+  function replaceMessage(messageId: string, nextMessage: ChatEntry) {
+    setMessages((current) =>
+      current.map((message) => (message.id === messageId ? nextMessage : message))
+    );
+  }
+
+  async function sendMessage(rawMessage: string, entryMode?: EntryMode | null) {
+    const message = rawMessage.trim();
 
     if (!message || isSending) {
       return;
     }
 
+    const resolvedEntryMode = entryMode ?? activeEntryMode ?? undefined;
     const userMessage: ChatEntry = {
       id: `user-${Date.now()}`,
       role: "user",
       content: message
     };
+    const thinkingId = `assistant-thinking-${Date.now()}`;
 
-    setMessages((current) => [...current, userMessage]);
+    setMessages((current) => [
+      ...current,
+      userMessage,
+      {
+        id: thinkingId,
+        role: "assistant",
+        content: "AI 正在思考..."
+      }
+    ]);
     setDraft("");
+    setError(null);
+    setIsSending(true);
+    setActiveEntryMode(resolvedEntryMode ?? null);
     if (textareaRef.current) {
       textareaRef.current.style.height = "";
     }
-    setIsSending(true);
-    setError(null);
 
     try {
       const response = await fetch("/api/dingtalk/webhook", {
@@ -95,35 +103,34 @@ export default function Home() {
           "Content-Type": "application/json"
         },
         body: JSON.stringify({
-          debug: true,
           sessionId,
+          entryMode: resolvedEntryMode,
           text: {
             content: message
           }
         })
       });
-
-      const payload = (await response.json()) as WebhookReply & {
-        error?: string;
-      };
+      const payload = (await response.json()) as WebhookReply;
 
       if (!response.ok) {
-        throw new Error(payload.error ?? "调试请求失败");
+        throw new Error(payload.error ?? "发送失败");
       }
 
-      setMessages((current) => [
-        ...current,
-        {
-          id: `assistant-${Date.now()}`,
-          role: "assistant",
-          content: payload.reply
-        }
-      ]);
-      setDebug(payload.debug ?? null);
+      replaceMessage(thinkingId, {
+        id: thinkingId,
+        role: "assistant",
+        content: payload.reply ?? "暂时没有拿到回复。"
+      });
     } catch (caughtError) {
-      setError(
-        caughtError instanceof Error ? caughtError.message : "调试请求失败"
-      );
+      const errorMessage =
+        caughtError instanceof Error ? caughtError.message : "发送失败";
+
+      replaceMessage(thinkingId, {
+        id: thinkingId,
+        role: "assistant",
+        content: "抱歉，这次没有成功返回结果，请稍后再试。"
+      });
+      setError(errorMessage);
     } finally {
       setIsSending(false);
     }
@@ -137,141 +144,135 @@ export default function Home() {
   function handleComposerKeyDown(event: KeyboardEvent<HTMLTextAreaElement>) {
     if (event.key === "Enter" && !event.shiftKey) {
       event.preventDefault();
-      void handleSend();
+      void sendMessage(draft);
     }
   }
 
+  function handleCardSelect(entryMode: EntryMode) {
+    setActiveEntryMode(entryMode);
+    setError(null);
+    focusComposer();
+  }
+
   return (
-    <main className="debug-shell">
-      <section className="debug-card debug-hero">
-        <p className="status-eyebrow">DingTalk Bot Debug</p>
-        <h1>网页调试聊天</h1>
-        <p className="status-description">
-          这里直接复用 <code>/api/dingtalk/webhook</code>，但会带上调试信息返回，方便你在浏览器里看每轮的判定、路由和回复结果。
-        </p>
+    <main className="portal-shell">
+      <section className="portal-hero">
+        <div className="portal-brand-mark">万</div>
+        <div className="portal-hero-copy">
+          <p className="portal-greeting">{buildGreeting()}</p>
+          <h1>我是万事通，您的全能 AI 工作搭子</h1>
+          <p>
+            我能帮你查制度、找对接人、找流程，也可以协助你写作。后续图片生成等能力也会继续接进来。
+          </p>
+        </div>
       </section>
 
-      <section className="debug-grid">
-        <section className="debug-card chat-card">
-          <div className="chat-header">
-            <div>
-              <h2>调试会话</h2>
-              <p>Session: {sessionId}</p>
-            </div>
-          </div>
-
-          <div className="chat-history">
-            {messages.length === 0 ? (
-              <div className="chat-empty">
-                先发一句话试试，比如“迟到扣钱制度”“深圳天气怎么样”“我要请假”。
+      <section className="portal-card-grid">
+        {homeEntryCards.map((card) => (
+          <article
+            key={card.title}
+            className={`portal-entry-card${
+              activeEntryMode === card.entryMode ? " portal-entry-card-active" : ""
+            }`}
+          >
+            <div className="portal-entry-head">
+              <div>
+                <h2>{card.title}</h2>
+                <p>{card.description}</p>
               </div>
-            ) : (
-              messages.map((message) => (
-                <article
-                  key={message.id}
-                  className={`chat-bubble chat-bubble-${message.role}`}
-                >
-                  <p className="chat-role">
-                    {message.role === "user" ? "你" : "助手"}
-                  </p>
-                  <p>{message.content}</p>
-                </article>
-              ))
-            )}
-          </div>
-
-          <div className="chat-composer">
-            <label className="composer-label" htmlFor="debug-message-input">
-              输入消息
-            </label>
-            <textarea
-              id="debug-message-input"
-              className="composer-input"
-              ref={textareaRef}
-              value={draft}
-              onChange={handleComposerChange}
-              onKeyDown={handleComposerKeyDown}
-              placeholder="输入你想测试的话术"
-              rows={1}
-            />
-            <div className="composer-actions">
-              {error ? <p className="composer-error">{error}</p> : null}
               <button
-                className="composer-button"
-                disabled={isSending}
-                onClick={handleSend}
+                className="portal-entry-activate"
+                onClick={() => handleCardSelect(card.entryMode)}
                 type="button"
               >
-                {isSending ? "发送中..." : "发送并调试"}
+                使用
               </button>
             </div>
+            <p className="portal-entry-helper">{card.helper}</p>
+            <button
+              className="portal-entry-example"
+              onClick={() => void sendMessage(card.exampleQuestion, card.entryMode)}
+              type="button"
+            >
+              {card.exampleQuestion}
+            </button>
+          </article>
+        ))}
+      </section>
+
+      <section className="portal-team-card">
+        <div className="portal-section-head">
+          <h2>万事通的同事们</h2>
+          {activeEntryMode ? <span>当前模式：{activeEntryMode}</span> : <span>点击卡片即可切换模式</span>}
+        </div>
+        <div className="portal-team-list">
+          {recommendedTeammates.map((teammate) => (
+            <div key={teammate} className="portal-pill">
+              {teammate}
+            </div>
+          ))}
+        </div>
+        <div className="portal-quick-links">
+          {quickLinks.map((link) => (
+            <span key={link} className="portal-quick-link">
+              {link}
+            </span>
+          ))}
+        </div>
+      </section>
+
+      <section className="portal-chat-card">
+        <div className="portal-section-head">
+          <h2>同页对话区</h2>
+          <span>{isSending ? "处理中..." : "准备就绪"}</span>
+        </div>
+
+        <div className="portal-chat-history">
+          {messages.length === 0 ? (
+            <div className="portal-chat-empty">
+              有问题尽管问我。你可以点卡片示例问题，也可以直接在下面输入。
+            </div>
+          ) : (
+            messages.map((message) => (
+              <article
+                key={message.id}
+                className={`portal-chat-bubble portal-chat-bubble-${message.role}`}
+              >
+                <p className="portal-chat-role">
+                  {message.role === "user" ? "你" : "万事通"}
+                </p>
+                <p>{message.content}</p>
+              </article>
+            ))
+          )}
+        </div>
+
+        <div className="chat-composer portal-composer">
+          <label className="composer-label" htmlFor="portal-message-input">
+            输入消息
+          </label>
+          <textarea
+            id="portal-message-input"
+            className="composer-input"
+            ref={textareaRef}
+            value={draft}
+            onChange={handleComposerChange}
+            onKeyDown={handleComposerKeyDown}
+            placeholder="输入你想问的问题，或让我帮你写点什么"
+            rows={1}
+          />
+          <div className="composer-actions">
+            {error ? <p className="composer-error">{error}</p> : <span className="portal-input-hint">Shift + Enter 换行</span>}
+            <button
+              className="composer-button"
+              disabled={isSending}
+              onClick={() => void sendMessage(draft)}
+              type="button"
+            >
+              {isSending ? "发送中..." : "发送"}
+            </button>
           </div>
-        </section>
-
-        <aside className="debug-card panel-card">
-          <h2>本轮调试信息</h2>
-
-          <dl className="debug-panel">
-            <div>
-              <dt>decision.mode</dt>
-              <dd>{debug?.intent?.mode ?? "-"}</dd>
-            </div>
-            <div>
-              <dt>decision.source</dt>
-              <dd>{debug?.intent?.source ?? "-"}</dd>
-            </div>
-            <div>
-              <dt>toolPlan</dt>
-              <dd>{debug?.intent?.toolPlan ?? "-"}</dd>
-            </div>
-            <div>
-              <dt>knowledgeHint</dt>
-              <dd>{debug?.intent?.knowledgeHint ?? "-"}</dd>
-            </div>
-            <div>
-              <dt>taskHint</dt>
-              <dd>{debug?.intent?.taskHint ?? "-"}</dd>
-            </div>
-            <div>
-              <dt>resolution.kind</dt>
-              <dd>{debug?.resolution?.kind ?? "-"}</dd>
-            </div>
-            <div>
-              <dt>referenceLabel</dt>
-              <dd>{debug?.resolution?.referenceLabel ?? "-"}</dd>
-            </div>
-            <div>
-              <dt>reasonCode</dt>
-              <dd>{debug?.resolution?.reasonCode ?? "-"}</dd>
-            </div>
-            <div>
-              <dt>usedResponseGenerator</dt>
-              <dd>{debug?.usedResponseGenerator ? "true" : "false"}</dd>
-            </div>
-            <div className="debug-panel-wide">
-              <dt>relatedKeywords</dt>
-              <dd>
-                {debug?.resolution?.relatedKeywords?.length
-                  ? debug.resolution.relatedKeywords.join("、")
-                  : "-"}
-              </dd>
-            </div>
-            <div className="debug-panel-wide">
-              <dt>conversationContext</dt>
-              <dd className="context-list">
-                {debug?.conversationContext?.length ? (
-                  debug.conversationContext.map((turn, index) => (
-                    <p key={`${turn.role}-${index}`}>
-                      <strong>{turn.role}:</strong> {turn.content}
-                    </p>
-                  ))
-                ) : (
-                  <span>-</span>
-                )}
-              </dd>
-            </div>
-          </dl>
-        </aside>
+        </div>
       </section>
     </main>
   );

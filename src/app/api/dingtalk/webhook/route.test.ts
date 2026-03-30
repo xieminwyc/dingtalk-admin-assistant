@@ -182,4 +182,50 @@ describe("POST /api/dingtalk/webhook", () => {
 
     expect(response.status).toBe(400);
   });
+
+  it("passes entryMode to the assistant runtime input", async () => {
+    vi.resetModules();
+
+    const reply = vi.fn().mockResolvedValue("已为你打开 OA 入口。");
+    const replyWithDebug = vi.fn();
+
+    vi.doMock("@/modules/assistant/create-assistant-runtime", () => ({
+      createAssistantRuntime: () => ({
+        assistant: {
+          reply,
+          replyWithDebug
+        }
+      })
+    }));
+
+    const { POST: mockedPost } = await import("./route");
+    const request = new Request("http://localhost/api/dingtalk/webhook", {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json"
+      },
+      body: JSON.stringify({
+        sessionId: "home-1",
+        entryMode: "task",
+        text: {
+          content: "帮我打开 OA"
+        }
+      })
+    });
+
+    const response = await mockedPost(request);
+    const data = (await response.json()) as {
+      reply?: string;
+    };
+
+    expect(response.status).toBe(200);
+    expect(data.reply).toBe("已为你打开 OA 入口。");
+    expect(reply).toHaveBeenCalledWith({
+      query: "帮我打开 OA",
+      sessionId: "home-1",
+      entryMode: "task"
+    });
+
+    vi.doUnmock("@/modules/assistant/create-assistant-runtime");
+  });
 });

@@ -6,6 +6,7 @@ import type {
   KnowledgeRetriever,
   KnowledgeSearchResult
 } from "../knowledge/retriever.types";
+import type { ContactDirectoryResolution } from "../contacts/contact-directory.types";
 import type { TaskCatalogResolution } from "../tasks/task-catalog.types";
 
 function createTaskCatalogStub(
@@ -73,6 +74,20 @@ function buildIntent(intent: IntentAnalysis["intent"]): IntentAnalysis {
     topicShift: false,
     intent,
     source: "model"
+  };
+}
+
+function createContactDirectoryStub(
+  resolution: ContactDirectoryResolution | null = {
+    title: "PMS 制卡问题",
+    contactName: "门店系统支持同学",
+    team: "门店系统支持",
+    description: "负责 PMS 制卡和门卡问题。",
+    actionHint: "联系前准备门店名称和报错信息。"
+  }
+) {
+  return {
+    resolve: vi.fn().mockReturnValue(resolution)
   };
 }
 
@@ -452,5 +467,78 @@ describe("createRequestRouter", () => {
     if (resolution.kind === "knowledge") {
       expect(resolution.answer).toContain("司龄");
     }
+  });
+
+  it("routes contact entryMode to a contact resolution before falling back to intent mode", async () => {
+    const localRetriever: KnowledgeRetriever = {
+      search: vi.fn().mockResolvedValue(emptyKnowledgeResult())
+    };
+    const contactDirectory = createContactDirectoryStub();
+    const router = createRequestRouter({
+      localRetriever,
+      taskCatalog: createTaskCatalogStub(),
+      contactDirectory
+    });
+
+    const resolution = await router.route({
+      query: "PMS制卡问题应该找谁处理？",
+      entryMode: "contact",
+      intent: buildIntent("unknown")
+    });
+
+    expect(contactDirectory.resolve).toHaveBeenCalledWith({
+      query: "PMS制卡问题应该找谁处理？"
+    });
+    expect(resolution).toMatchObject({
+      kind: "contact",
+      intent: "handoff_request"
+    });
+  });
+
+  it("returns an image placeholder reply for image entryMode", async () => {
+    const localRetriever: KnowledgeRetriever = {
+      search: vi.fn().mockResolvedValue(emptyKnowledgeResult())
+    };
+    const router = createRequestRouter({
+      localRetriever,
+      taskCatalog: createTaskCatalogStub(),
+      contactDirectory: createContactDirectoryStub()
+    });
+
+    const resolution = await router.route({
+      query: "画一幅江南春景图",
+      entryMode: "image_placeholder",
+      intent: buildIntent("smalltalk")
+    });
+
+    expect(resolution).toEqual({
+      kind: "open_response",
+      intent: "smalltalk",
+      reply:
+        "图片生成功能即将支持。你可以先告诉我主题、风格和使用场景，我可以先帮你整理提示词。"
+    });
+  });
+
+  it("keeps writing entryMode on the direct-answer path", async () => {
+    const localRetriever: KnowledgeRetriever = {
+      search: vi.fn().mockResolvedValue(emptyKnowledgeResult())
+    };
+    const router = createRequestRouter({
+      localRetriever,
+      taskCatalog: createTaskCatalogStub(),
+      contactDirectory: createContactDirectoryStub()
+    });
+
+    const resolution = await router.route({
+      query: "帮我写一份项目周报",
+      entryMode: "writing",
+      intent: buildIntent("smalltalk")
+    });
+
+    expect(resolution).toEqual({
+      kind: "open_response",
+      intent: "smalltalk",
+      reply: "帮我写一份项目周报"
+    });
   });
 });

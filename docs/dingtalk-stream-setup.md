@@ -1,7 +1,7 @@
 # 🔗 钉钉 Stream Mode 接入手册
 
 > 这份文档面向当前项目的开发和联调阶段。  
-> 目标是把“钉钉行政万事通”真正接进钉钉组织内 AI 助理，当前项目已经具备机器人后端、网页调试聊天页、内部知识检索和事务入口编排能力。
+> 目标是把“钉钉行政万事通”真正接进钉钉组织内 AI 助理，当前项目已经具备机器人后端、正式 H5 首页、网页调试页、内部知识检索和事务入口编排能力。
 
 ---
 
@@ -49,7 +49,7 @@
 
 | 入口                 | 作用                           |
 | -------------------- | ------------------------------ |
-| `npm run dev`        | 跑最小调试页和普通 API         |
+| `npm run dev`        | 跑正式首页、调试页和普通 API   |
 | `npm run stream:dev` | 跑钉钉长连接客户端，且自动重启 |
 
 ---
@@ -164,7 +164,7 @@ npm run dev
 
 作用：
 
-- 打开最小调试页
+- 打开正式首页与调试页
 - 保留 `Next.js` API 路由能力
 
 ### 3.2 启动 Stream 长连接
@@ -195,7 +195,7 @@ DingTalk Stream client connected.
 
 ## 4. 如何验证是否接通
 
-### 验证 1：本地调试页正常
+### 验证 1：本地页面正常
 
 打开：
 
@@ -203,15 +203,38 @@ DingTalk Stream client connected.
 http://localhost:3001
 ```
 
+你应该能看到正式的“万事通”首页。
+
+如果你要看调试页，打开：
+
+```text
+http://localhost:3001/debug
+```
+
 你应该能看到“网页调试聊天”页面。
 
-这个调试页会直接调用：
+正式首页和调试页都会调用：
 
 ```text
 /api/dingtalk/webhook
 ```
 
-并把一轮消息的调试信息一起展示出来，方便你确认：
+其中：
+
+- `/` 是正式首页，展示 5 张业务卡和同页聊天区
+- `/debug` 是开发调试页，会把一轮消息的调试信息完整展示出来，方便你确认：
+
+首页 5 张卡和 `entryMode` 的对应关系是：
+
+| 首页卡片 | entryMode | 当前行为 |
+| --- | --- | --- |
+| 找制度 | `knowledge` | 优先走内部知识检索 |
+| 找对接人 | `contact` | 走本地联系人目录 |
+| 找流程 | `task` | 走事务目录与入口解析 |
+| 图片生成 | `image_placeholder` | 返回占位提示 |
+| 帮我写作 | `writing` | 走写作型 LLM 回复 |
+
+在 `/debug` 页直接手输消息时，不会主动带首页入口模式，更适合看自然意图判定与工具分流。
 
 - 这轮是 `internal_knowledge / task / open_response / clarify` 里的哪一类
 - 这轮有没有真正走知识库或事务工具
@@ -322,7 +345,7 @@ cat .env.local
 ### 5.4 调试页能打开，但和钉钉没关系
 
 这是正常的。  
-因为首页是本地网页调试页，真正接钉钉靠的是：
+因为无论你打开的是正式首页还是 `/debug` 调试页，它们都只是本地页面；真正接钉钉靠的是：
 
 ```text
 npm run stream:dev
@@ -374,11 +397,12 @@ curl -X POST http://localhost:3001/api/dingtalk/webhook \
 
 ## 6. 当前代码对应关系
 
-### API 与调试页
+### API 与页面
 
 | 文件                                                                                            | 作用                  |
 | ----------------------------------------------------------------------------------------------- | --------------------- |
-| [page.tsx](/Users/xiemin/monter/dingtalk-admin-assistant/src/app/page.tsx)                      | 网页调试聊天页入口    |
+| [page.tsx](/Users/xiemin/monter/dingtalk-admin-assistant/src/app/page.tsx)                      | 正式万事通首页入口    |
+| [debug/page.tsx](/Users/xiemin/monter/dingtalk-admin-assistant/src/app/debug/page.tsx)          | 网页调试聊天页入口    |
 | [route.ts](/Users/xiemin/monter/dingtalk-admin-assistant/src/app/api/dingtalk/webhook/route.ts) | 本地 webhook API 路由 |
 
 ### Stream 接入层

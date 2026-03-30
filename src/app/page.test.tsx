@@ -1,28 +1,31 @@
 import { render, screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
-import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
 
 import Home from "./page";
 
 describe("Home", () => {
-  beforeEach(() => {
+  afterEach(() => {
+    vi.restoreAllMocks();
+  });
+
+  it("renders the five homepage entry cards", () => {
+    render(<Home />);
+
+    expect(screen.getByText("找制度")).toBeInTheDocument();
+    expect(screen.getByText("找对接人")).toBeInTheDocument();
+    expect(screen.getByText("找流程")).toBeInTheDocument();
+    expect(screen.getByText("图片生成")).toBeInTheDocument();
+    expect(screen.getByText("帮我写作")).toBeInTheDocument();
+  });
+
+  it("sends the contact example question with entryMode contact", async () => {
+    const user = userEvent.setup();
+
     vi.spyOn(globalThis, "fetch").mockResolvedValue(
       new Response(
         JSON.stringify({
-          reply: "根据《员工假勤管理办法》，年假天数按司龄计算。",
-          debug: {
-            intent: {
-              mode: "internal_knowledge",
-              source: "model",
-              toolPlan: "knowledge",
-              knowledgeHint: "年假规则"
-            },
-            resolution: {
-              kind: "knowledge",
-              referenceLabel: "员工假勤管理办法 - 年假"
-            },
-            usedResponseGenerator: true
-          }
+          reply: "请联系门店系统支持同学处理 PMS 制卡问题。"
         }),
         {
           status: 200,
@@ -32,48 +35,10 @@ describe("Home", () => {
         }
       )
     );
-  });
-
-  afterEach(() => {
-    vi.restoreAllMocks();
-  });
-
-  it("renders the browser debug chat workbench", () => {
-    render(<Home />);
-
-    expect(screen.getByText("网页调试聊天")).toBeInTheDocument();
-    expect(screen.getByText("本轮调试信息")).toBeInTheDocument();
-  });
-
-  it("sends a debug chat request and renders the returned debug metadata", async () => {
-    const user = userEvent.setup();
 
     render(<Home />);
 
-    await user.type(screen.getByLabelText("输入消息"), "年假规则是什么");
-    await user.click(screen.getByRole("button", { name: "发送并调试" }));
-
-    await waitFor(() => {
-      expect(screen.getByText("根据《员工假勤管理办法》，年假天数按司龄计算。")).toBeInTheDocument();
-    });
-
-    expect(screen.getByText("internal_knowledge")).toBeInTheDocument();
-    expect(screen.getAllByText("knowledge")).toHaveLength(2);
-    expect(screen.getByText("员工假勤管理办法 - 年假")).toBeInTheDocument();
-    expect(globalThis.fetch).toHaveBeenCalledWith(
-      "/api/dingtalk/webhook",
-      expect.objectContaining({
-        method: "POST"
-      })
-    );
-  });
-
-  it("submits the current message when pressing Enter", async () => {
-    const user = userEvent.setup();
-
-    render(<Home />);
-
-    await user.type(screen.getByLabelText("输入消息"), "深圳天气怎么样{enter}");
+    await user.click(screen.getByRole("button", { name: "PMS制卡问题应该找谁处理？" }));
 
     await waitFor(() => {
       expect(globalThis.fetch).toHaveBeenCalledTimes(1);
@@ -82,8 +47,45 @@ describe("Home", () => {
     expect(globalThis.fetch).toHaveBeenCalledWith(
       "/api/dingtalk/webhook",
       expect.objectContaining({
-        method: "POST"
+        method: "POST",
+        body: expect.stringContaining("\"entryMode\":\"contact\"")
       })
     );
+    expect(screen.getByText("请联系门店系统支持同学处理 PMS 制卡问题。")).toBeInTheDocument();
+  });
+
+  it("shows a thinking state before the reply resolves", async () => {
+    const user = userEvent.setup();
+    let resolveFetch: ((value: Response) => void) | undefined;
+    const fetchPromise = new Promise<Response>((resolve) => {
+      resolveFetch = resolve;
+    });
+
+    vi.spyOn(globalThis, "fetch").mockReturnValue(fetchPromise);
+
+    render(<Home />);
+
+    await user.type(screen.getByLabelText("输入消息"), "帮我写一份周报{enter}");
+
+    expect(screen.getByText("AI 正在思考...")).toBeInTheDocument();
+
+    resolveFetch?.(
+      new Response(
+        JSON.stringify({
+          reply: "这是本周周报初稿。"
+        }),
+        {
+          status: 200,
+          headers: {
+            "Content-Type": "application/json"
+          }
+        }
+      )
+    );
+
+    await waitFor(() => {
+      expect(screen.getByText("这是本周周报初稿。")).toBeInTheDocument();
+    });
+    expect(screen.queryByText("AI 正在思考...")).not.toBeInTheDocument();
   });
 });

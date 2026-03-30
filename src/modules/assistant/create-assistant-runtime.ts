@@ -5,6 +5,8 @@ import { z } from "zod";
 
 import { createAssistantService } from "@/modules/assistant/assistant.service";
 import { createResponseGenerator } from "@/modules/assistant/response-generator";
+import { ContactDirectoryService } from "@/modules/contacts/contact-directory.service";
+import { sampleContactDirectory } from "@/modules/contacts/sample-contact-directory";
 import { createIntentAnalyzer } from "@/modules/intents/intent-analyzer";
 import {
   createModelIntentClassifier,
@@ -40,6 +42,7 @@ type AssistantRuntime = {
   localRetriever: KnowledgeRetriever;
   externalRetriever?: KnowledgeRetriever;
   taskCatalog: TaskCatalogService;
+  contactDirectory: ContactDirectoryService;
   conversationLogger: ConversationLogRepository;
   conversationContextService: ConversationContextService;
 };
@@ -215,6 +218,7 @@ export function createAssistantRuntime(
     knowledgeDocsDir: input.knowledgeDocsDir
   });
   const taskCatalog = new TaskCatalogService(sampleTaskCatalog);
+  const contactDirectory = new ContactDirectoryService(sampleContactDirectory);
   const conversationLogger = new ConversationLogRepository();
   const conversationContextService = new ConversationContextService(
     conversationLogger
@@ -257,6 +261,7 @@ export function createAssistantRuntime(
     responseGenerator,
     externalRetriever,
     taskCatalog,
+    contactDirectory,
     conversationLogger,
     conversationContextService,
     // handoff 目前仍由 request-router 内部调用 `evaluateHandoff`，
@@ -264,6 +269,7 @@ export function createAssistantRuntime(
     assistant: createAssistantService({
       localRetriever,
       taskCatalog,
+      contactDirectory,
       externalRetriever,
       enableExternalKnowledge: Boolean(externalRetriever),
       analyzer,
