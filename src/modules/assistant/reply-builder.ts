@@ -85,7 +85,7 @@ function buildReplyFromResolution(input: AssistantResolution) {
       return formatClarificationReply(input);
     case "handoff":
       return input.reason;
-    case "smalltalk":
+    case "open_response":
       return input.reply;
     default:
       return assertNever(input);

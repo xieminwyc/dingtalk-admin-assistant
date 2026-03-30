@@ -9,16 +9,18 @@ function buildDecisionPayload(query: string) {
       intentConfidence: 0.94,
       needKnowledge: false,
       needTaskResolution: true,
+      toolPlan: "task",
       topicShift: false,
       taskHint: "leave_application"
     };
   }
 
   return {
-    mode: "knowledge",
+    mode: "internal_knowledge",
     intentConfidence: 0.93,
     needKnowledge: true,
     needTaskResolution: false,
+    toolPlan: "knowledge",
     topicShift: false,
     knowledgeHint: "年假规则"
   };
@@ -121,6 +123,46 @@ describe("POST /api/dingtalk/webhook", () => {
     expect(response.status).toBe(200);
     expect(data.reply).toContain("结论");
     expect(data.reply).toContain("年假天数按司龄计算");
+  });
+
+  it("can return debug payloads for the web debug page", async () => {
+    const request = new Request("http://localhost/api/dingtalk/webhook", {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json"
+      },
+      body: JSON.stringify({
+        debug: true,
+        sessionId: "page-debug-session",
+        text: {
+          content: "年假规则是什么"
+        }
+      })
+    });
+
+    const response = await POST(request);
+    const data = (await response.json()) as {
+      reply?: string;
+      debug?: {
+        intent?: {
+          mode?: string;
+          knowledgeHint?: string;
+          source?: string;
+        };
+        resolution?: {
+          kind?: string;
+          referenceLabel?: string;
+        };
+        usedResponseGenerator?: boolean;
+      };
+    };
+
+    expect(response.status).toBe(200);
+    expect(data.reply).toContain("年假天数按司龄计算");
+    expect(data.debug?.intent?.mode).toBe("internal_knowledge");
+    expect(data.debug?.intent?.knowledgeHint).toBe("年假规则");
+    expect(data.debug?.resolution?.kind).toBe("knowledge");
+    expect(data.debug?.usedResponseGenerator).toBe(true);
   });
 
   it("rejects an empty user message", async () => {

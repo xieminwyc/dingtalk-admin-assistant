@@ -33,14 +33,26 @@ function formatIntentLog(message: string) {
 
 function mapModeToLegacyIntent(mode: AssistantDecision["mode"]): IntentType {
   switch (mode) {
-    case "knowledge":
+    case "internal_knowledge":
       return "knowledge_query";
     case "task":
       return "task_request";
-    case "chat":
+    case "open_response":
       return "smalltalk";
     case "clarify":
       return "unknown";
+  }
+}
+
+function fallbackToolPlanByMode(mode: AssistantDecision["mode"]) {
+  switch (mode) {
+    case "internal_knowledge":
+      return "knowledge";
+    case "task":
+      return "task";
+    case "open_response":
+    case "clarify":
+      return "none";
   }
 }
 
@@ -62,6 +74,7 @@ function buildAnalysisResult(
 ): IntentAnalysis {
   return {
     ...decision,
+    toolPlan: decision.toolPlan ?? fallbackToolPlanByMode(decision.mode),
     source,
     intent: mapModeToLegacyIntent(decision.mode)
   };

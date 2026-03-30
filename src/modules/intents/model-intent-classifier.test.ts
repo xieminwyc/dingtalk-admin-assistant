@@ -20,6 +20,7 @@ describe("createModelIntentClassifier", () => {
                 intentConfidence: 0.93,
                 needKnowledge: false,
                 needTaskResolution: true,
+                toolPlan: "task",
                 topicShift: false,
                 taskHint: "leave_application"
               })
@@ -57,6 +58,7 @@ describe("createModelIntentClassifier", () => {
       intentConfidence: 0.93,
       needKnowledge: false,
       needTaskResolution: true,
+      toolPlan: "task",
       topicShift: false,
       taskHint: "leave_application"
     });
@@ -78,10 +80,11 @@ describe("createModelIntentClassifier", () => {
           {
             message: {
               content: JSON.stringify({
-                mode: "chat",
+                mode: "open_response",
                 intentConfidence: 0.88,
                 needKnowledge: false,
                 needTaskResolution: false,
+                toolPlan: "none",
                 topicShift: false
               })
             }
@@ -116,7 +119,7 @@ describe("createModelIntentClassifier", () => {
     );
   });
 
-  it("teaches the model to treat short policy phrases as knowledge queries", async () => {
+  it("teaches the model to treat short policy phrases as internal knowledge queries", async () => {
     const fetchMock = vi.fn().mockResolvedValue({
       ok: true,
       json: async () => ({
@@ -124,10 +127,11 @@ describe("createModelIntentClassifier", () => {
           {
             message: {
               content: JSON.stringify({
-                mode: "knowledge",
+                mode: "internal_knowledge",
                 intentConfidence: 0.91,
                 needKnowledge: true,
                 needTaskResolution: false,
+                toolPlan: "knowledge",
                 topicShift: false,
                 knowledgeHint: "迟到扣款制度"
               })
@@ -157,7 +161,7 @@ describe("createModelIntentClassifier", () => {
     expect(requestBody.messages[0]?.content).toContain("病假工资");
     expect(requestBody.messages[0]?.content).toContain("年假天数");
     expect(requestBody.messages[0]?.content).toContain(
-      "这类表达优先判断为 knowledge"
+      "这类表达优先判断为 internal_knowledge"
     );
     expect(requestBody.messages[0]?.content).toContain("迟到打卡怎么算");
     expect(requestBody.messages[0]?.content).toContain(
@@ -166,6 +170,47 @@ describe("createModelIntentClassifier", () => {
     expect(requestBody.messages[0]?.content).toContain(
       "意图判断只看用户当前想做什么"
     );
+  });
+
+  it("teaches the model to answer general knowledge directly without hitting company knowledge", async () => {
+    const fetchMock = vi.fn().mockResolvedValue({
+      ok: true,
+      json: async () => ({
+        choices: [
+          {
+            message: {
+              content: JSON.stringify({
+                mode: "open_response",
+                intentConfidence: 0.94,
+                needKnowledge: false,
+                needTaskResolution: false,
+                toolPlan: "none",
+                topicShift: false
+              })
+            }
+          }
+        ]
+      })
+    });
+
+    const classifier = createModelIntentClassifier({
+      apiKey: "test-key",
+      baseUrl: "https://api.siliconflow.cn/v1",
+      model: "Qwen/Qwen3-8B",
+      fetch: fetchMock
+    });
+
+    await classifier.classify({
+      query: "北京七日游攻略"
+    });
+
+    const requestBody = JSON.parse(String(fetchMock.mock.calls[0]?.[1]?.body)) as {
+      messages: Array<{ role: string; content: string }>;
+    };
+
+    expect(requestBody.messages[0]?.content).toContain("open_response");
+    expect(requestBody.messages[0]?.content).toContain("北京七日游攻略");
+    expect(requestBody.messages[0]?.content).toContain("禁止查阅公司内部知识库");
   });
 
   it("returns a clarify fallback when the model payload is not a supported decision", async () => {
@@ -196,6 +241,7 @@ describe("createModelIntentClassifier", () => {
       intentConfidence: 0,
       needKnowledge: false,
       needTaskResolution: false,
+      toolPlan: "none",
       topicShift: false,
       clarifyQuestion: "我先确认一下，你是想查制度说明，还是想办理流程？"
     });
@@ -216,6 +262,7 @@ describe("createModelIntentClassifier", () => {
       intentConfidence: 0,
       needKnowledge: false,
       needTaskResolution: false,
+      toolPlan: "none",
       topicShift: false,
       clarifyQuestion: "我先确认一下，你是想查制度说明，还是想办理流程？"
     });
@@ -245,6 +292,7 @@ describe("createModelIntentClassifier", () => {
       intentConfidence: 0,
       needKnowledge: false,
       needTaskResolution: false,
+      toolPlan: "none",
       topicShift: false,
       clarifyQuestion: "我先确认一下，你是想查制度说明，还是想办理流程？"
     });

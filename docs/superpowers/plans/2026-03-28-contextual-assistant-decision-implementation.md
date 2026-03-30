@@ -15,14 +15,24 @@
 本计划实现已批准的 spec：
 [`docs/superpowers/specs/2026-03-28-contextual-assistant-decision-design.md`](/Users/xiemin/monter/dingtalk-admin-assistant/docs/superpowers/specs/2026-03-28-contextual-assistant-decision-design.md)
 
+> 2026-03-30 补充：当前代码已经继续演进为更贴近真实产品体验的模式划分：
+> `internal_knowledge / task / open_response / clarify`
+>
+> 当前真实策略是：
+> - `internal_knowledge` -> 查内部知识源
+> - `task` -> 查事务工具
+> - `open_response` -> 直接模型回答
+> - `clarify` -> 追问
+
 本次实施包含：
 
-- 将 `knowledge_query / task_request / handoff_request / smalltalk / unknown` 替换为 `knowledge / task / chat / clarify`
+- 将 `knowledge_query / task_request / handoff_request / smalltalk / unknown` 替换为 `internal_knowledge / task / open_response / clarify`
 - 让 LLM 成为主决策器
 - 增加按会话组织的上下文与话题切换处理
 - 将本地样例知识、未来上传文档边界、外部 RAG 统一到同一个知识 provider 契约
 - 为事务结果增加 `actionType`、`availability` 和更丰富的后续引导信息
 - 将当前僵硬的模板回复，替换为“基于工具事实的模型生成回复”
+- 增加 `toolPlan`，只让 `internal_knowledge` 与 `task` 调工具，`open_response` 直接模型回答
 
 本计划暂不实现：
 
@@ -35,7 +45,7 @@
 
 | 路径 | 职责 |
 | --- | --- |
-| `src/modules/intents/intent.types.ts` | 新的顶层助手模式与 `AssistantDecision` 契约 |
+| `src/modules/intents/intent.types.ts` | 新的顶层助手模式、`toolPlan` 与 `AssistantDecision` 契约 |
 | `src/modules/intents/intent-analyzer.ts` | 带会话上下文的决策引擎适配层 |
 | `src/modules/intents/intent-analyzer.test.ts` | 决策行为、置信度、话题切换测试 |
 | `src/modules/intents/model-intent-classifier.ts` | 决策 JSON 的 LLM 客户端 |
@@ -46,6 +56,8 @@
 | `src/modules/logging/conversation-context.service.ts` | 从日志中构建有边界的最近上下文 |
 | `src/modules/logging/conversation-context.service.test.ts` | 上下文窗口、TTL、话题重置测试 |
 | `src/modules/knowledge/retriever.types.ts` | 统一知识 provider 输入/输出契约 |
+| `src/modules/knowledge/local-document-retriever.ts` | 读取 `docs/knowledge/*.md` 的本地文档 provider |
+| `src/modules/knowledge/local-document-retriever.test.ts` | 本地文档 provider 的切片与检索测试 |
 | `src/modules/knowledge/knowledge-card-retriever.ts` | 带 `referenceLabel` 与 `relatedKeywords` 的样例知识 provider |
 | `src/modules/knowledge/knowledge-card-retriever.test.ts` | 样例知识 provider 行为测试 |
 | `src/modules/knowledge/external-rag-retriever.ts` | 外部 RAG provider 适配器 |
@@ -63,13 +75,17 @@
 | `src/modules/assistant/assistant.service.ts` | 主编排：加载上下文 -> 决策 -> 调工具 -> 生成回复 |
 | `src/modules/assistant/assistant.service.test.ts` | 助手端到端编排测试 |
 | `src/modules/assistant/create-assistant-runtime.ts` | 组装决策引擎、providers、上下文服务、回复生成器 |
+| `src/modules/assistant/create-assistant-runtime.test.ts` | 校验 runtime 默认优先接入本地文档知识源 |
 | `src/modules/dingtalk/stream-handler.ts` | 提取 session 身份并传入更丰富的 assistant 输入 |
 | `src/modules/dingtalk/stream-handler.test.ts` | Stream 会话/上下文透传测试 |
 | `src/modules/dingtalk/stream-client.ts` | 让 Stream 入口适配新运行时 |
 | `src/modules/dingtalk/stream-client.test.ts` | Stream 集成测试 |
-| `src/app/api/dingtalk/webhook/route.ts` | 对齐 richer assistant 输入的 HTTP 调试入口 |
+| `src/app/api/dingtalk/webhook/route.ts` | 对齐 richer assistant 输入与 debug 返回的 HTTP 调试入口 |
 | `src/app/api/dingtalk/webhook/route.test.ts` | Webhook 集成测试 |
+| `src/app/page.tsx` | 网页调试聊天页与本轮调试面板 |
+| `src/app/page.test.tsx` | 网页调试页交互测试 |
 | `docs/dingtalk-stream-setup.md` | 新模型主导链路的运行与调试文档 |
+| `docs/knowledge/*.md` | 本地联调用的真实制度文档知识源 |
 
 ---
 
@@ -90,7 +106,7 @@
 
 ```ts
 expectTypeOf<AssistantMode>().toEqualTypeOf<
-  "knowledge" | "task" | "chat" | "clarify"
+  "internal_knowledge" | "task" | "open_response" | "clarify"
 >();
 expect(result.availability).toBe("available");
 expect(hits[0]?.referenceLabel).toBe("年假制度");
@@ -107,13 +123,18 @@ expect(hits[0]?.referenceLabel).toBe("年假制度");
 更新类型，至少引入：
 
 ```ts
-export type AssistantMode = "knowledge" | "task" | "chat" | "clarify";
+export type AssistantMode =
+  | "internal_knowledge"
+  | "task"
+  | "open_response"
+  | "clarify";
 
 export type AssistantDecision = {
   mode: AssistantMode;
   intentConfidence: number;
   needKnowledge: boolean;
   needTaskResolution: boolean;
+  toolPlan: "none" | "knowledge" | "task";
   topicShift: boolean;
   contextBreakConfidence?: number;
   clarifyQuestion?: string;
@@ -228,19 +249,20 @@ git commit -m "feat: add session conversation context service"
 
 覆盖：
 
-- `你是谁` -> `chat`
+- `你是谁` -> `open_response`
 - 带上文闲聊上下文时，`那请假怎么申请` -> `task`
-- 在任务流程后突然问 `那明天下雨吗？` -> `chat` 且 `topicShift=true`
+- 在任务流程后突然问 `那明天下雨吗？` -> `open_response` 且 `topicShift=true`
 - 低置信度模糊输入 -> `clarify`
 
 示例：
 
 ```ts
 expect(result).toEqual({
-  mode: "chat",
+  mode: "open_response",
   intentConfidence: 0.42,
   needKnowledge: false,
   needTaskResolution: false,
+  toolPlan: "none",
   topicShift: true,
   contextBreakConfidence: 0.91
 });
@@ -306,20 +328,25 @@ git commit -m "refactor: add model-led assistant decision engine"
 
 ---
 
-### 任务 4：统一样例知识与外部 RAG 的 provider 结构
+### 任务 4：统一本地文档、样例知识与外部 RAG 的 provider 结构
 
 **文件：**
+- 创建：`src/modules/knowledge/local-document-retriever.ts`
+- 创建：`src/modules/knowledge/local-document-retriever.test.ts`
 - 修改：`src/modules/knowledge/knowledge-card-retriever.ts`
 - 修改：`src/modules/knowledge/knowledge-card-retriever.test.ts`
 - 修改：`src/modules/knowledge/external-rag-retriever.ts`
 - 修改：`src/modules/knowledge/external-rag-retriever.test.ts`
 - 修改：`src/modules/knowledge/sample-knowledge-cards.ts`
 - 修改：`src/modules/assistant/create-assistant-runtime.ts`
+- 创建：`src/modules/assistant/create-assistant-runtime.test.ts`
+- 创建：`docs/knowledge/*.md`
 
 - [ ] **步骤 1：先写失败的 provider 测试**
 
 覆盖：
 
+- 本地 Markdown 文档切片后可命中制度条款
 - 样例知识命中时返回 `referenceLabel`
 - 无命中时返回 `relatedKeywords`
 - 外部 RAG 结果归一为同一结构
@@ -331,16 +358,27 @@ expect(hits[0]).toMatchObject({
   source: "seed",
   referenceLabel: "年假规则"
 });
+expect(documentHits[0]).toMatchObject({
+  source: "document",
+  referenceLabel: "员工假勤管理办法 - 异常处理（豁免与乐捐） / 迟到扣款处理标准"
+});
 expect(result.relatedKeywords).toEqual(["年假折现", "离职补偿"]);
 ```
 
 - [ ] **步骤 2：运行测试，确认先失败**
 
-运行：`npm test -- --run src/modules/knowledge/knowledge-card-retriever.test.ts src/modules/knowledge/external-rag-retriever.test.ts`
+运行：`npm test -- --run src/modules/knowledge/local-document-retriever.test.ts src/modules/knowledge/knowledge-card-retriever.test.ts src/modules/knowledge/external-rag-retriever.test.ts src/modules/assistant/create-assistant-runtime.test.ts`
 
 预期：FAIL，因为 provider 还没有暴露这些更丰富的元数据。
 
 - [ ] **步骤 3：写最小 provider 改动**
+
+新增本地文档 provider：
+
+- 读取 `docs/knowledge/*.md`
+- 按 `# / ## / ###` 做轻量切片
+- 归一成 `source: "document"` 的 `KnowledgeHit`
+- 无命中时返回章节级 `relatedKeywords`
 
 更新样例知识 provider：
 
@@ -358,15 +396,15 @@ relatedKeywords?: [];
 
 - [ ] **步骤 4：重新运行测试，确认通过**
 
-运行：`npm test -- --run src/modules/knowledge/knowledge-card-retriever.test.ts src/modules/knowledge/external-rag-retriever.test.ts`
+运行：`npm test -- --run src/modules/knowledge/local-document-retriever.test.ts src/modules/knowledge/knowledge-card-retriever.test.ts src/modules/knowledge/external-rag-retriever.test.ts src/modules/assistant/create-assistant-runtime.test.ts`
 
 预期：PASS
 
 - [ ] **步骤 5：提交知识 provider 统一改动**
 
 ```bash
-git add src/modules/knowledge/knowledge-card-retriever.ts src/modules/knowledge/knowledge-card-retriever.test.ts src/modules/knowledge/external-rag-retriever.ts src/modules/knowledge/external-rag-retriever.test.ts src/modules/knowledge/sample-knowledge-cards.ts src/modules/assistant/create-assistant-runtime.ts
-git commit -m "refactor: unify knowledge providers for contextual assistant"
+git add src/modules/knowledge/local-document-retriever.ts src/modules/knowledge/local-document-retriever.test.ts src/modules/knowledge/knowledge-card-retriever.ts src/modules/knowledge/knowledge-card-retriever.test.ts src/modules/knowledge/external-rag-retriever.ts src/modules/knowledge/external-rag-retriever.test.ts src/modules/knowledge/sample-knowledge-cards.ts src/modules/assistant/create-assistant-runtime.ts src/modules/assistant/create-assistant-runtime.test.ts docs/knowledge
+git commit -m "refactor: unify document knowledge providers for contextual assistant"
 ```
 
 ---
@@ -461,9 +499,9 @@ git commit -m "feat: add task availability metadata"
 
 ```ts
 type AssistantExecutionResult =
-  | { mode: "knowledge"; knowledge: KnowledgeSearchResult }
+  | { mode: "internal_knowledge"; knowledge: KnowledgeSearchResult }
   | { mode: "task"; task: TaskResolveResult }
-  | { mode: "chat" }
+  | { mode: "open_response" }
   | { mode: "clarify"; clarifyQuestion: string };
 ```
 

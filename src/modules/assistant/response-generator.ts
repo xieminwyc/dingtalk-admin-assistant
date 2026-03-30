@@ -59,9 +59,9 @@ function formatResolutionFacts(resolution: AssistantResolution) {
         `reasonCode: ${resolution.reasonCode ?? "无"}`,
         `relatedKeywords: ${resolution.relatedKeywords?.join("、") ?? "无"}`
       ].join("\n");
-    case "smalltalk":
+    case "open_response":
       return [
-        "mode: chat",
+        "mode: open_response",
         `fallbackReply: ${resolution.reply}`
       ].join("\n");
     case "handoff":
@@ -124,6 +124,9 @@ export function createResponseGenerator(
                   "你是企业员工助手的回复生成器，请基于事实生成自然、简洁的中文回复。",
                   "你是公司内部员工助手，不要询问用户公司名称，也不要假装自己是互联网搜索引擎。",
                   "Facts from providers are authoritative; do not invent links or policies.",
+                  "如果 mode 是 open_response，说明这轮不需要查公司知识库或事务工具，请直接回答。",
+                  "open_response 场景下：用户闲聊就简洁自然地回；用户要通用知识、攻略、天气、常识时就直接给有用答案。",
+                  "open_response 场景下严禁假装去查公司制度，也不要把通用问题硬拉回公司知识库。",
                   "如果工具没有给出事实，严禁编造制度、链接或联系人。",
                   "如果有 referenceLabel，请优先自然引用来源。",
                   "如果是 clarify，只问当前最关键的补充问题。",

@@ -5,7 +5,7 @@ type AssistantIntentByKind = {
   task: "task_request";
   handoff: "handoff_request";
   clarification: "unknown";
-  smalltalk: "smalltalk";
+  open_response: "smalltalk";
 };
 
 export type AssistantKnowledgeResolution = {
@@ -48,9 +48,9 @@ export type AssistantClarificationResolution = {
   handoff?: HandoffDecision;
 };
 
-export type AssistantSmalltalkResolution = {
-  kind: "smalltalk";
-  intent: AssistantIntentByKind["smalltalk"];
+export type AssistantOpenResponseResolution = {
+  kind: "open_response";
+  intent: AssistantIntentByKind["open_response"];
   reply: string;
 };
 
@@ -59,4 +59,4 @@ export type AssistantResolution =
   | AssistantTaskResolution
   | AssistantHandoffResolution
   | AssistantClarificationResolution
-  | AssistantSmalltalkResolution;
+  | AssistantOpenResponseResolution;

@@ -55,15 +55,21 @@ function buildIntent(intent: IntentAnalysis["intent"]): IntentAnalysis {
   return {
     mode:
       intent === "knowledge_query"
-        ? "knowledge"
+        ? "internal_knowledge"
         : intent === "task_request"
           ? "task"
           : intent === "smalltalk"
-            ? "chat"
+            ? "open_response"
             : "clarify",
     intentConfidence: 0.9,
     needKnowledge: intent === "knowledge_query",
     needTaskResolution: intent === "task_request",
+    toolPlan:
+      intent === "knowledge_query"
+        ? "knowledge"
+        : intent === "task_request"
+          ? "task"
+          : "none",
     topicShift: false,
     intent,
     source: "model"
@@ -181,7 +187,7 @@ describe("createRequestRouter", () => {
     expect(localRetriever.search).not.toHaveBeenCalled();
   });
 
-  it("routes smalltalk to a lightweight reply", async () => {
+  it("routes open_response to a direct-answer resolution without hitting tools", async () => {
     const localRetriever: KnowledgeRetriever = {
       search: vi.fn().mockResolvedValue(emptyKnowledgeResult())
     };
@@ -191,14 +197,14 @@ describe("createRequestRouter", () => {
     });
 
     const resolution = await router.route({
-      query: "你好",
+      query: "北京七日游攻略",
       intent: buildIntent("smalltalk")
     });
 
     expect(resolution).toEqual({
-      kind: "smalltalk",
+      kind: "open_response",
       intent: "smalltalk",
-      reply: "你好，我可以帮你查行政制度或办理入口。"
+      reply: "北京七日游攻略"
     });
     expect(localRetriever.search).not.toHaveBeenCalled();
   });
@@ -236,7 +242,7 @@ describe("createRequestRouter", () => {
       query: "年假规则是什么",
       intent: {
         ...buildIntent("unknown"),
-        mode: "knowledge",
+        mode: "internal_knowledge",
         needKnowledge: true
       }
     });
@@ -268,6 +274,30 @@ describe("createRequestRouter", () => {
       intent: "unknown",
       prompt: "你是想查制度说明，还是想办理流程？"
     });
+  });
+
+  it("does not hit the company knowledge retriever for open_response questions", async () => {
+    const localRetriever: KnowledgeRetriever = {
+      search: vi.fn().mockResolvedValue(emptyKnowledgeResult())
+    };
+    const router = createRequestRouter({
+      localRetriever,
+      taskCatalog: createTaskCatalogStub()
+    });
+
+    const resolution = await router.route({
+      query: "深圳天气怎么样",
+      intent: {
+        ...buildIntent("smalltalk"),
+        mode: "open_response",
+        needKnowledge: false,
+        needTaskResolution: false,
+        toolPlan: "none"
+      }
+    });
+
+    expect(resolution.kind).toBe("open_response");
+    expect(localRetriever.search).not.toHaveBeenCalled();
   });
 
   it("returns a no-candidate clarification with related keywords when knowledge misses", async () => {

@@ -7,13 +7,20 @@ export type IntentType =
 
 // 第二阶段开始引入更贴近产品体验的顶层模式。
 // 这里先把新契约补进来，后续重构时可以逐步替换旧的 IntentType。
-export type AssistantMode = "knowledge" | "task" | "chat" | "clarify";
+export type AssistantMode =
+  | "internal_knowledge"
+  | "task"
+  | "open_response"
+  | "clarify";
+
+export type AssistantToolPlan = "none" | "knowledge" | "task";
 
 export type AssistantDecision = {
   mode: AssistantMode;
   intentConfidence: number;
   needKnowledge: boolean;
   needTaskResolution: boolean;
+  toolPlan: AssistantToolPlan;
   topicShift: boolean;
   contextBreakConfidence?: number;
   clarifyQuestion?: string;

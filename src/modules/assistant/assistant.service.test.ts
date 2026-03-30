@@ -29,19 +29,25 @@ function buildIntentAnalysis(
   overrides: Partial<IntentAnalysis> = {}
 ): IntentAnalysis {
   const legacyIntent =
-    mode === "knowledge"
+    mode === "internal_knowledge"
       ? "knowledge_query"
       : mode === "task"
         ? "task_request"
-        : mode === "chat"
+        : mode === "open_response"
           ? "smalltalk"
           : "unknown";
 
   return {
     mode,
     intentConfidence: 0.9,
-    needKnowledge: mode === "knowledge",
+    needKnowledge: mode === "internal_knowledge",
     needTaskResolution: mode === "task",
+    toolPlan:
+      mode === "internal_knowledge"
+        ? "knowledge"
+        : mode === "task"
+          ? "task"
+          : "none",
     topicShift: false,
     intent: legacyIntent,
     source: "model",
@@ -98,26 +104,29 @@ describe("createAssistantService", () => {
     expect(reply).toContain("请联系");
   });
 
-  it("obeys analyzer output contract for smalltalk without hitting retriever", async () => {
+  it("obeys analyzer output contract for open_response without hitting retriever", async () => {
     const localRetriever: KnowledgeRetriever = {
       async search() {
-        throw new Error("retriever should not be called for smalltalk");
+        throw new Error("retriever should not be called for open_response");
       }
     };
     const analyzer: IntentAnalyzer = {
       async analyze() {
-        return buildIntentAnalysis("chat");
+        return buildIntentAnalysis("open_response");
       }
     };
 
     const assistant = createAssistantService({
       localRetriever,
       analyzer,
-      taskCatalog: createTaskCatalog()
+      taskCatalog: createTaskCatalog(),
+      responseGenerator: {
+        generate: vi.fn().mockResolvedValue("北京七日游可以先逛中轴线，再安排一天长城。")
+      }
     });
-    const reply = await assistant.reply("你好");
+    const reply = await assistant.reply("北京七日游攻略");
 
-    expect(reply).toContain("你好");
+    expect(reply).toContain("中轴线");
   });
 
   it("treats legacy handoff-style requests as clarification in contextual mode", async () => {
@@ -222,7 +231,7 @@ describe("createAssistantService", () => {
     };
     const analyzer: IntentAnalyzer = {
       async analyze() {
-        return buildIntentAnalysis("knowledge");
+        return buildIntentAnalysis("internal_knowledge");
       }
     };
 
@@ -263,7 +272,7 @@ describe("createAssistantService", () => {
     };
     const analyzer: IntentAnalyzer = {
       async analyze() {
-        return buildIntentAnalysis("knowledge");
+        return buildIntentAnalysis("internal_knowledge");
       }
     };
 
@@ -427,5 +436,94 @@ describe("createAssistantService", () => {
       role: "assistant",
       routeType: "task_request"
     });
+  });
+
+  it("can return debug metadata for a single reply", async () => {
+    const analyzer: IntentAnalyzer = {
+      async analyze() {
+        return buildIntentAnalysis("internal_knowledge", {
+          knowledgeHint: "年假规则"
+        });
+      }
+    };
+    const assistant = createAssistantService({
+      localRetriever: {
+        async search() {
+          return {
+            hits: [
+              {
+                id: "doc-1",
+                question: "年假规则",
+                title: "年假规则",
+                answer: "年假天数按司龄计算。",
+                scope: "适用于正式员工",
+                score: 0.98,
+                source: "document",
+                referenceLabel: "员工假勤管理办法 - 年假"
+              }
+            ],
+            relatedKeywords: []
+          };
+        }
+      },
+      analyzer,
+      taskCatalog: createTaskCatalog(),
+      responseGenerator: {
+        generate: vi.fn().mockResolvedValue("依据《员工假勤管理办法》，年假天数按司龄计算。")
+      },
+      conversationContextService: {
+        loadRecentContext: vi.fn().mockResolvedValue([
+          { role: "user", content: "你能做什么？" }
+        ])
+      }
+    });
+
+    const result = await assistant.replyWithDebug({
+      query: "年假规则是什么",
+      sessionId: "debug-session"
+    });
+
+    expect(result.reply).toContain("员工假勤管理办法");
+    expect(result.intent.mode).toBe("internal_knowledge");
+    expect(result.resolution.kind).toBe("knowledge");
+    expect(result.conversationContext).toEqual([
+      { role: "user", content: "你能做什么？" }
+    ]);
+    expect(result.usedResponseGenerator).toBe(true);
+  });
+
+  it("returns an open_response debug result without touching internal knowledge tools", async () => {
+    const localRetriever: KnowledgeRetriever = {
+      async search() {
+        throw new Error("retriever should not be called for open_response");
+      }
+    };
+    const analyzer: IntentAnalyzer = {
+      async analyze() {
+        return buildIntentAnalysis("open_response");
+      }
+    };
+
+    const assistant = createAssistantService({
+      localRetriever,
+      analyzer,
+      taskCatalog: createTaskCatalog(),
+      responseGenerator: {
+        generate: vi
+          .fn()
+          .mockResolvedValue("北京七日游可以按故宫、长城、颐和园、胡同、美术馆的节奏安排。")
+      }
+    });
+
+    const result = await assistant.replyWithDebug({
+      query: "北京七日游攻略",
+      sessionId: "debug-open-response"
+    });
+
+    expect(result.intent.mode).toBe("open_response");
+    expect(result.intent.toolPlan).toBe("none");
+    expect(result.resolution.kind).toBe("open_response");
+    expect(result.reply).toContain("故宫");
+    expect(result.usedResponseGenerator).toBe(true);
   });
 });

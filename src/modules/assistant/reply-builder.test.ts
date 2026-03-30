@@ -9,7 +9,7 @@ import type {
 import { buildAssistantReply } from "./reply-builder";
 
 expectTypeOf<AssistantMode>().toEqualTypeOf<
-  "knowledge" | "task" | "chat" | "clarify"
+  "internal_knowledge" | "task" | "open_response" | "clarify"
 >();
 expectTypeOf<AssistantKnowledgeResolution["intent"]>().toEqualTypeOf<"knowledge_query">();
 expectTypeOf<AssistantTaskResolution["intent"]>().toEqualTypeOf<"task_request">();
@@ -72,5 +72,15 @@ describe("buildAssistantReply", () => {
     expect(reply).toContain("请补充");
     expect(reply).toContain("联系行政同学");
     expect(reply).toContain("你可以试试");
+  });
+
+  it("builds an open-response fallback reply", () => {
+    const reply = buildAssistantReply({
+      kind: "open_response",
+      intent: "smalltalk",
+      reply: "你好呀，今天想聊点什么？"
+    });
+
+    expect(reply).toContain("今天想聊点什么");
   });
 });

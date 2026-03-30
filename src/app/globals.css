@@ -82,6 +82,199 @@ main {
   color: #0f172a;
 }
 
+.debug-shell {
+  max-width: 1320px;
+  margin: 0 auto;
+  min-height: 100vh;
+  padding: 32px 20px;
+  display: grid;
+  gap: 20px;
+  align-content: start;
+}
+
+.debug-grid {
+  display: grid;
+  grid-template-columns: minmax(0, 1.4fr) minmax(320px, 0.9fr);
+  gap: 20px;
+}
+
+.debug-card {
+  padding: 24px;
+  border-radius: 24px;
+  background: rgba(255, 255, 255, 0.9);
+  border: 1px solid rgba(148, 163, 184, 0.2);
+  box-shadow: 0 20px 50px rgba(15, 23, 42, 0.07);
+}
+
+.debug-card h1,
+.debug-card h2 {
+  margin: 0;
+}
+
+.debug-card code {
+  padding: 2px 6px;
+  border-radius: 8px;
+  background: #f2f4f7;
+}
+
+.chat-card,
+.panel-card {
+  display: grid;
+  gap: 18px;
+  align-content: start;
+}
+
+.chat-header p {
+  margin: 8px 0 0;
+  color: #475467;
+}
+
+.chat-history {
+  min-height: 0;
+  max-height: clamp(280px, 48vh, 560px);
+  overflow: auto;
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  padding: 8px 4px;
+}
+
+.chat-empty {
+  padding: 18px;
+  border-radius: 18px;
+  background: #f8fafc;
+  color: #475467;
+  line-height: 1.7;
+}
+
+.chat-bubble {
+  max-width: 85%;
+  padding: 14px 16px;
+  border-radius: 18px;
+  line-height: 1.7;
+  box-shadow: 0 8px 20px rgba(15, 23, 42, 0.06);
+}
+
+.chat-bubble p {
+  margin: 0;
+}
+
+.chat-bubble-user {
+  align-self: flex-end;
+  background: linear-gradient(135deg, #0f766e, #0b5d56);
+  color: white;
+}
+
+.chat-bubble-assistant {
+  align-self: flex-start;
+  background: #f8fafc;
+  color: #111827;
+  border: 1px solid rgba(148, 163, 184, 0.2);
+}
+
+.chat-role {
+  margin-bottom: 6px !important;
+  font-size: 12px;
+  font-weight: 700;
+  opacity: 0.75;
+  letter-spacing: 0.03em;
+  text-transform: uppercase;
+}
+
+.chat-composer {
+  display: grid;
+  gap: 10px;
+}
+
+.composer-label {
+  font-weight: 700;
+  color: #0f172a;
+}
+
+.composer-input {
+  width: 100%;
+  min-height: 56px;
+  max-height: 180px;
+  resize: none;
+  border: 1px solid rgba(148, 163, 184, 0.3);
+  border-radius: 16px;
+  padding: 14px 16px;
+  font: inherit;
+  background: #fcfdff;
+  color: #111827;
+}
+
+.composer-actions {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+.composer-button {
+  border: 0;
+  border-radius: 999px;
+  padding: 12px 18px;
+  font: inherit;
+  font-weight: 700;
+  color: white;
+  background: linear-gradient(135deg, #0f766e, #0b5d56);
+  cursor: pointer;
+}
+
+.composer-button:disabled {
+  cursor: wait;
+  opacity: 0.72;
+}
+
+.composer-error {
+  margin: 0;
+  color: #b42318;
+}
+
+.debug-panel {
+  margin: 0;
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 14px 16px;
+}
+
+.debug-panel div {
+  padding: 14px;
+  border-radius: 16px;
+  background: #f8fafc;
+  border: 1px solid rgba(148, 163, 184, 0.16);
+}
+
+.debug-panel dt {
+  margin: 0 0 8px;
+  color: #475467;
+  font-size: 12px;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.03em;
+}
+
+.debug-panel dd {
+  margin: 0;
+  color: #0f172a;
+  line-height: 1.7;
+  word-break: break-word;
+}
+
+.debug-panel-wide {
+  grid-column: 1 / -1;
+}
+
+.context-list {
+  display: grid;
+  gap: 8px;
+}
+
+.context-list p {
+  margin: 0;
+}
+
 @media (max-width: 720px) {
   .status-shell {
     padding: 20px 14px 24px;
@@ -89,5 +282,26 @@ main {
 
   .status-card {
     padding: 22px 18px;
+  }
+
+  .debug-shell {
+    padding: 18px 14px 24px;
+  }
+
+  .debug-grid {
+    grid-template-columns: 1fr;
+  }
+
+  .debug-card {
+    padding: 20px 18px;
+  }
+
+  .chat-card,
+  .panel-card {
+    min-height: auto;
+  }
+
+  .debug-panel {
+    grid-template-columns: 1fr;
   }
 }

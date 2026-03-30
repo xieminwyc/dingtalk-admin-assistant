@@ -4,6 +4,15 @@
 > 范围：员工助手第二阶段重构
 > 目标：把当前“规则优先、固定枚举路由”的员工助手，升级为“上下文驱动、模型主导决策、工具提供事实、模型生成自然回复”的助手架构。
 
+> 2026-03-30 补充：当前代码已经在原方案基础上继续演进。为了避免把“北京七日游攻略”这类开放问题误送进公司知识库，顶层模式已经进一步收敛为：
+> `internal_knowledge / task / open_response / clarify`
+>
+> 对应真实策略是：
+> - `internal_knowledge` -> 查公司内部知识源
+> - `task` -> 查事务 / OA 工具
+> - `open_response` -> 直接模型回答
+> - `clarify` -> 信息不足时追问
+
 ## 1. 设计目标
 
 当前机器人已经具备基础的钉钉接入、知识卡片检索、事务入口返回和回复编排能力，但整体仍然偏“静态路由器”。
@@ -50,9 +59,9 @@
 ### 3.1 In Scope
 
 - 顶层主模式压缩为四类：
-  - `knowledge`
+  - `internal_knowledge`
   - `task`
-  - `chat`
+  - `open_response`
   - `clarify`
 - 去掉“规则优先、模型兜底”的主路径，改为“模型优先、必要时轻量降级”
 - 将最近几轮上下文纳入决策输入
@@ -78,12 +87,12 @@
 
 新的主模式定义为：
 
-- `knowledge`
-  - 用户主要在询问规则、制度、政策、说明、口径、适用范围
+- `internal_knowledge`
+  - 用户主要在询问公司内部规则、制度、政策、说明、口径、适用范围
 - `task`
   - 用户主要在表达办理意图、申请动作、流程推进诉求、入口诉求
-- `chat`
-  - 用户主要在闲聊、打招呼、询问助手身份、能力边界、顺手追问
+- `open_response`
+  - 用户主要在闲聊、打招呼、询问助手身份、通用知识、天气、攻略、常识问答
 - `clarify`
   - 当前上下文不足以稳定判断，需要先补问一句
 
@@ -91,11 +100,12 @@
 
 | 用户输入 | 结合上下文后的主模式 | 系统处理 |
 | --- | --- | --- |
-| “你是谁” | `chat` | 大模型直接自然回复助手身份与能力 |
+| “你是谁” | `open_response` | 大模型直接自然回复助手身份与能力 |
 | “那请假怎么申请” | `task` | 先查事务元数据，再由模型组织办理说明 |
-| “年假怎么算” | `knowledge` | 先查知识，再由模型组织结论与适用范围 |
+| “年假怎么算” | `internal_knowledge` | 先查知识，再由模型组织结论与适用范围 |
+| “北京七日游攻略” | `open_response` | 直接由大模型回答，不查公司知识库 |
 | “这个怎么办” | `clarify` | 大模型生成补充问题 |
-| “那这个和病假区别呢” | `knowledge` | 结合上文主题继续查知识，而不是回到单句判定 |
+| “那这个和病假区别呢” | `internal_knowledge` | 结合上文主题继续查知识，而不是回到单句判定 |
 
 ## 5. 总体架构
 
@@ -169,10 +179,11 @@ Decision Engine 是新的核心模块，由大模型主导。
 
 ```ts
 type AssistantDecision = {
-  mode: "knowledge" | "task" | "chat" | "clarify";
+  mode: "internal_knowledge" | "task" | "open_response" | "clarify";
   intentConfidence: number;
   needKnowledge: boolean;
   needTaskResolution: boolean;
+  toolPlan: "none" | "knowledge" | "task";
   topicShift: boolean;
   contextBreakConfidence?: number;
   clarifyQuestion?: string;
@@ -191,6 +202,8 @@ type AssistantDecision = {
   - 是否调用知识工具
 - `needTaskResolution`
   - 是否调用事务工具
+- `toolPlan`
+  - 这轮后续是否调用工具，以及调用哪类工具
 - `topicShift`
   - 是否检测到当前用户已经明显跳出上一个话题
 - `contextBreakConfidence`
@@ -332,11 +345,11 @@ Response Generator 负责最终面向用户的自然语言输出。
 
 不同主模式的建议行为：
 
-- `chat`
+- `open_response`
   - 直接由大模型自然回复
 - `clarify`
   - 由大模型生成针对性的补充问题
-- `knowledge`
+- `internal_knowledge`
   - 先查知识，再由大模型基于检索结果生成自然说明
 - `task`
   - 先查事务元数据，再由大模型基于事务结果生成自然办理指导
@@ -368,7 +381,7 @@ Response Generator 负责最终面向用户的自然语言输出。
 + 最近几轮上下文
 + 助手能力说明
   -> Decision Engine
-  -> 得到 mode / needKnowledge / needTaskResolution / hints
+  -> 得到 mode / toolPlan / needKnowledge / needTaskResolution / hints
   -> Tool Layer
      - knowledge provider
      - task provider
@@ -387,7 +400,7 @@ Response Generator 负责最终面向用户的自然语言输出。
 - 用户：“那请假怎么申请？”
 - 系统：切到 `task`
 - 用户：“那年假和事假有什么区别？”
-- 系统：切到 `knowledge`
+- 系统：切到 `internal_knowledge`
 
 因此：
 
@@ -454,20 +467,21 @@ Response Generator 负责最终面向用户的自然语言输出。
 
 - 让模型输出结构化决策 JSON
 - 明确只允许四种 `mode`
-- 明确 `chat` 包含闲聊、打招呼、能力询问
+- 明确 `open_response` 包含闲聊、打招呼、能力询问、天气、攻略、通用知识
 - 明确 `clarify` 只在信息不足时使用
 - 明确当对话中出现承接关系时，必须结合上下文判断
 - 明确要求模型识别话题是否已经明显切换
 - 明确要求模型在低置信时不要硬判，应转入 `clarify`
+- 明确只有 `internal_knowledge` 和 `task` 才允许调工具
 
 ### 8.2 Response Prompt
 
 目标：
 
 - 基于上下文和工具结果生成自然回复
-- 对 `knowledge` 回复强调“依据检索结果回答”
+- 对 `internal_knowledge` 回复强调“依据检索结果回答”
 - 对 `task` 回复强调“说明办理方式并引用真实入口”
-- 对 `chat` 回复强调自然、简洁、有助手边界
+- 对 `open_response` 回复强调自然、简洁，并根据问题类型自动切换闲聊口吻或知识型结构
 - 对 `clarify` 回复强调只问当前最关键的补充问题
 - 若存在知识来源、制度标题、文档标题或链接，应优先带上引用溯源
 - 允许做受约束的轻推导，但必须显式基于工具事实

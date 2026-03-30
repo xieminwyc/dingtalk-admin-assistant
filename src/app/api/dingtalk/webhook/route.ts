@@ -16,6 +16,7 @@ function getAssistantRuntime() {
 
 type DingTalkWebhookPayload = {
   sessionId?: string;
+  debug?: boolean;
   text?: {
     content?: string;
   };
@@ -38,12 +39,30 @@ export async function POST(request: Request) {
   }
 
   // webhook 这一层只负责收发消息，不承担问答细节，避免路由文件变重。
-  const reply = await getAssistantRuntime().assistant.reply({
+  const assistantInput = {
     query: message,
     // webhook 调试入口默认允许显式透传 sessionId；
     // 没给时就落到一个固定调试会话，方便本地连续调试上下文。
     sessionId: body.sessionId ?? "webhook-debug-session"
-  });
+  };
+
+  if (body.debug) {
+    const debugResult = await getAssistantRuntime().assistant.replyWithDebug(
+      assistantInput
+    );
+
+    return Response.json({
+      reply: debugResult.reply,
+      debug: {
+        conversationContext: debugResult.conversationContext,
+        intent: debugResult.intent,
+        resolution: debugResult.resolution,
+        usedResponseGenerator: debugResult.usedResponseGenerator
+      }
+    });
+  }
+
+  const reply = await getAssistantRuntime().assistant.reply(assistantInput);
 
   return Response.json({
     reply

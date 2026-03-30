@@ -8,15 +8,16 @@ describe("createIntentAnalyzer", () => {
     vi.restoreAllMocks();
   });
 
-  it("uses the model decision for chat requests", async () => {
+  it("uses the model decision for open-response requests", async () => {
     const infoSpy = vi.spyOn(console, "info").mockImplementation(() => {});
     const analyzer = createIntentAnalyzer({
       modelClassifier: {
         classify: vi.fn().mockResolvedValue({
-          mode: "chat",
+          mode: "open_response",
           intentConfidence: 0.96,
           needKnowledge: false,
           needTaskResolution: false,
+          toolPlan: "none",
           topicShift: false
         } satisfies AssistantDecision)
       }
@@ -27,16 +28,17 @@ describe("createIntentAnalyzer", () => {
     });
 
     expect(result).toEqual({
-      mode: "chat",
+      mode: "open_response",
       intentConfidence: 0.96,
       needKnowledge: false,
       needTaskResolution: false,
+      toolPlan: "none",
       topicShift: false,
       intent: "smalltalk",
       source: "model"
     });
     expect(infoSpy).toHaveBeenCalledWith(
-      '[intent] source=model mode=chat query="你是谁"'
+      '[intent] source=model mode=open_response query="你是谁"'
     );
   });
 
@@ -48,7 +50,7 @@ describe("createIntentAnalyzer", () => {
         needKnowledge: false,
         needTaskResolution: true,
         topicShift: false,
-        taskHint: "leave_application"
+      taskHint: "leave_application"
       } satisfies AssistantDecision)
     };
 
@@ -73,6 +75,7 @@ describe("createIntentAnalyzer", () => {
       intentConfidence: 0.91,
       needKnowledge: false,
       needTaskResolution: true,
+      toolPlan: "task",
       topicShift: false,
       taskHint: "leave_application",
       intent: "task_request",
@@ -84,10 +87,11 @@ describe("createIntentAnalyzer", () => {
     const analyzer = createIntentAnalyzer({
       modelClassifier: {
         classify: vi.fn().mockResolvedValue({
-          mode: "chat",
+          mode: "open_response",
           intentConfidence: 0.42,
           needKnowledge: false,
           needTaskResolution: false,
+          toolPlan: "none",
           topicShift: true,
           contextBreakConfidence: 0.91
         } satisfies AssistantDecision)
@@ -103,10 +107,11 @@ describe("createIntentAnalyzer", () => {
     });
 
     expect(result).toEqual({
-      mode: "chat",
+      mode: "open_response",
       intentConfidence: 0.42,
       needKnowledge: false,
       needTaskResolution: false,
+      toolPlan: "none",
       topicShift: true,
       contextBreakConfidence: 0.91,
       intent: "smalltalk",
@@ -122,6 +127,7 @@ describe("createIntentAnalyzer", () => {
           intentConfidence: 0.18,
           needKnowledge: false,
           needTaskResolution: false,
+          toolPlan: "none",
           topicShift: false,
           clarifyQuestion: "你是想查制度说明，还是想办理流程？"
         } satisfies AssistantDecision)
@@ -137,6 +143,7 @@ describe("createIntentAnalyzer", () => {
       intentConfidence: 0.18,
       needKnowledge: false,
       needTaskResolution: false,
+      toolPlan: "none",
       topicShift: false,
       clarifyQuestion: "你是想查制度说明，还是想办理流程？",
       intent: "unknown",
@@ -161,6 +168,7 @@ describe("createIntentAnalyzer", () => {
       intentConfidence: 0,
       needKnowledge: false,
       needTaskResolution: false,
+      toolPlan: "none",
       topicShift: false,
       clarifyQuestion: "我先确认一下，你是想查制度说明，还是想办理流程？",
       intent: "unknown",

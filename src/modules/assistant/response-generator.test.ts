@@ -107,6 +107,45 @@ describe("createResponseGenerator", () => {
     ).resolves.toBeNull();
   });
 
+  it("treats open_response as a direct-answer mode instead of a company knowledge lookup", async () => {
+    const fetchMock = vi.fn().mockResolvedValue({
+      ok: true,
+      json: async () => ({
+        choices: [
+          {
+            message: {
+              content:
+                "如果你想玩得轻松一点，可以按中轴线、故宫、颐和园、长城、胡同、美术馆、奥莱休闲这样的节奏安排七天。"
+            }
+          }
+        ]
+      })
+    });
+    const generator = createResponseGenerator({
+      apiKey: "test-key",
+      baseUrl: "https://api.siliconflow.cn/v1",
+      model: "Qwen/Qwen3-8B",
+      fetch: fetchMock
+    });
+
+    const reply = await generator.generate({
+      query: "北京七日游攻略",
+      resolution: {
+        kind: "open_response",
+        intent: "smalltalk",
+        reply: "北京七日游攻略"
+      }
+    });
+
+    expect(reply).toContain("七天");
+    const requestBody = JSON.parse(String(fetchMock.mock.calls[0]?.[1]?.body)) as {
+      messages: Array<{ content: string }>;
+    };
+    expect(requestBody.messages[0]?.content).toContain("open_response");
+    expect(requestBody.messages[0]?.content).toContain("直接回答");
+    expect(requestBody.messages[1]?.content).toContain("mode: open_response");
+  });
+
   it("locks the assistant identity and no-hit guidance into the generation prompt", async () => {
     const fetchMock = vi.fn().mockResolvedValue({
       ok: true,

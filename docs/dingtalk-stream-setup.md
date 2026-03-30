@@ -1,7 +1,7 @@
 # 🔗 钉钉 Stream Mode 接入手册
 
 > 这份文档面向当前项目的开发和联调阶段。  
-> 目标是把“钉钉行政万事通”真正接进钉钉组织内 AI 助理，当前项目只保留机器人后端与最小调试页。
+> 目标是把“钉钉行政万事通”真正接进钉钉组织内 AI 助理，当前项目已经具备机器人后端、网页调试聊天页、内部知识检索和事务入口编排能力。
 
 ---
 
@@ -203,7 +203,19 @@ DingTalk Stream client connected.
 http://localhost:3001
 ```
 
-你应该能看到“钉钉机器人后端已启动”。
+你应该能看到“网页调试聊天”页面。
+
+这个调试页会直接调用：
+
+```text
+/api/dingtalk/webhook
+```
+
+并把一轮消息的调试信息一起展示出来，方便你确认：
+
+- 这轮是 `internal_knowledge / task / open_response / clarify` 里的哪一类
+- 这轮有没有真正走知识库或事务工具
+- 最终回复是不是由 `response-generator` 生成的
 
 ### 验证 2：Stream 连接已建立
 
@@ -249,7 +261,7 @@ https://oa.example.com/tasks/leave-application
 如果你已经配置了 `SILICONFLOW_*`，当前版本会有两次模型调用：
 
 1. `Decision Engine`
-   - 判断这轮是 `knowledge / task / chat / clarify`
+   - 判断这轮是 `internal_knowledge / task / open_response / clarify`
 2. `Response Generator`
    - 基于工具事实生成最终自然回复
 
@@ -310,7 +322,7 @@ cat .env.local
 ### 5.4 调试页能打开，但和钉钉没关系
 
 这是正常的。  
-因为首页只是本地调试页，真正接钉钉靠的是：
+因为首页是本地网页调试页，真正接钉钉靠的是：
 
 ```text
 npm run stream:dev
@@ -366,7 +378,7 @@ curl -X POST http://localhost:3001/api/dingtalk/webhook \
 
 | 文件                                                                                            | 作用                  |
 | ----------------------------------------------------------------------------------------------- | --------------------- |
-| [page.tsx](/Users/xiemin/monter/dingtalk-admin-assistant/src/app/page.tsx)                      | 最小调试页入口        |
+| [page.tsx](/Users/xiemin/monter/dingtalk-admin-assistant/src/app/page.tsx)                      | 网页调试聊天页入口    |
 | [route.ts](/Users/xiemin/monter/dingtalk-admin-assistant/src/app/api/dingtalk/webhook/route.ts) | 本地 webhook API 路由 |
 
 ### Stream 接入层
@@ -379,28 +391,41 @@ curl -X POST http://localhost:3001/api/dingtalk/webhook \
 
 ### 业务层
 
-| 文件                                                                                                                           | 作用                           |
-| ------------------------------------------------------------------------------------------------------------------------------ | ------------------------------ |
-| [create-assistant-runtime.ts](/Users/xiemin/monter/dingtalk-admin-assistant/src/modules/assistant/create-assistant-runtime.ts) | 统一组装默认 runtime           |
-| [assistant.service.ts](/Users/xiemin/monter/dingtalk-admin-assistant/src/modules/assistant/assistant.service.ts)               | 问答主流程编排                 |
-| [response-generator.ts](/Users/xiemin/monter/dingtalk-admin-assistant/src/modules/assistant/response-generator.ts)             | 基于工具事实生成自然回复       |
-| [reply-builder.ts](/Users/xiemin/monter/dingtalk-admin-assistant/src/modules/assistant/reply-builder.ts)                       | 模型生成失败时的文本兜底       |
-| [request-router.ts](/Users/xiemin/monter/dingtalk-admin-assistant/src/modules/router/request-router.ts)                        | 按 `mode` 协调知识 / 事务 / 澄清 |
-| [intent-analyzer.ts](/Users/xiemin/monter/dingtalk-admin-assistant/src/modules/intents/intent-analyzer.ts)                     | 模型主导的决策器适配层         |
-| [model-intent-classifier.ts](/Users/xiemin/monter/dingtalk-admin-assistant/src/modules/intents/model-intent-classifier.ts)     | 调用 SiliconFlow 生成结构化决策 |
-| [knowledge-card-retriever.ts](/Users/xiemin/monter/dingtalk-admin-assistant/src/modules/knowledge/knowledge-card-retriever.ts) | 本地知识卡片检索               |
-| [task-catalog.service.ts](/Users/xiemin/monter/dingtalk-admin-assistant/src/modules/tasks/task-catalog.service.ts)             | 事务目录入口解析               |
-| [conversation-context.service.ts](/Users/xiemin/monter/dingtalk-admin-assistant/src/modules/logging/conversation-context.service.ts) | 读取最近几轮会话上下文         |
+| 文件                                                                                                                                 | 作用                             |
+| ------------------------------------------------------------------------------------------------------------------------------------ | -------------------------------- |
+| [create-assistant-runtime.ts](/Users/xiemin/monter/dingtalk-admin-assistant/src/modules/assistant/create-assistant-runtime.ts)       | 统一组装默认 runtime             |
+| [assistant.service.ts](/Users/xiemin/monter/dingtalk-admin-assistant/src/modules/assistant/assistant.service.ts)                     | 问答主流程编排                   |
+| [response-generator.ts](/Users/xiemin/monter/dingtalk-admin-assistant/src/modules/assistant/response-generator.ts)                   | 基于工具事实生成自然回复         |
+| [reply-builder.ts](/Users/xiemin/monter/dingtalk-admin-assistant/src/modules/assistant/reply-builder.ts)                             | 模型生成失败时的文本兜底         |
+| [request-router.ts](/Users/xiemin/monter/dingtalk-admin-assistant/src/modules/router/request-router.ts)                              | 按 `mode` 协调知识 / 事务 / 澄清 |
+| [intent-analyzer.ts](/Users/xiemin/monter/dingtalk-admin-assistant/src/modules/intents/intent-analyzer.ts)                           | 模型主导的决策器适配层           |
+| [model-intent-classifier.ts](/Users/xiemin/monter/dingtalk-admin-assistant/src/modules/intents/model-intent-classifier.ts)           | 调用 SiliconFlow 生成结构化决策  |
+| [local-document-retriever.ts](/Users/xiemin/monter/dingtalk-admin-assistant/src/modules/knowledge/local-document-retriever.ts)       | 本地 Markdown 制度文档检索       |
+| [knowledge-card-retriever.ts](/Users/xiemin/monter/dingtalk-admin-assistant/src/modules/knowledge/knowledge-card-retriever.ts)       | 本地知识卡片检索                 |
+| [task-catalog.service.ts](/Users/xiemin/monter/dingtalk-admin-assistant/src/modules/tasks/task-catalog.service.ts)                   | 事务目录入口解析                 |
+| [conversation-context.service.ts](/Users/xiemin/monter/dingtalk-admin-assistant/src/modules/logging/conversation-context.service.ts) | 读取最近几轮会话上下文           |
 
 ### 内容整理流程
 
 当前项目的知识内容流程是：
 
 ```text
-钉钉文档 -> 人工整理 -> Markdown 卡片 -> 本地知识卡 / 事务目录
+制度文档 / 钉钉知识内容
+  -> 人工整理成 Markdown
+  -> docs/knowledge/*.md
+  -> LocalDocumentRetriever
+  -> 命中则直接作为本地知识答案
+  -> 没命中时再退回 sample knowledge cards
 ```
 
-模板文档见：
+当前优先使用的本地知识目录：
+
+- [`docs/knowledge/假勤管理办法.md`](/Users/xiemin/monter/dingtalk-admin-assistant/docs/knowledge/假勤管理办法.md)
+- [`docs/knowledge/员工福利管理制度.md`](/Users/xiemin/monter/dingtalk-admin-assistant/docs/knowledge/员工福利管理制度.md)
+- [`docs/knowledge/非业务合同管理制度.md`](/Users/xiemin/monter/dingtalk-admin-assistant/docs/knowledge/非业务合同管理制度.md)
+- [`docs/knowledge/绩效考核管理制度.md`](/Users/xiemin/monter/dingtalk-admin-assistant/docs/knowledge/绩效考核管理制度.md)
+
+历史卡片模板仍保留给兜底 demo 数据参考：
 
 [knowledge-card-template.md](/Users/xiemin/monter/dingtalk-admin-assistant/docs/knowledge-card-template.md)
 
@@ -454,7 +479,7 @@ ModelIntentClassifier.classify(...)
   ->
 RequestRouter.route(...)
   ->
-Knowledge / Task / Clarify / Chat
+internal_knowledge / task / open_response / clarify
   ->
 ResponseGenerator.generate(...)
   ->
@@ -474,10 +499,28 @@ ResponseGenerator.generate(...)
 3. [`loadRecentContext()`](/Users/xiemin/monter/dingtalk-admin-assistant/src/modules/logging/conversation-context.service.ts)
    读取最近几轮上下文
 4. [`analyzer.analyze()`](/Users/xiemin/monter/dingtalk-admin-assistant/src/modules/intents/intent-analyzer.ts)
-   让模型产出 `knowledge / task / chat / clarify`
+   让模型产出 `internal_knowledge / task / open_response / clarify`
 5. [`router.route()`](/Users/xiemin/monter/dingtalk-admin-assistant/src/modules/router/request-router.ts)
    根据 `mode` 决定要不要调用知识或事务工具
 6. [`responseGenerator.generate()`](/Users/xiemin/monter/dingtalk-admin-assistant/src/modules/assistant/response-generator.ts)
    基于工具事实生成自然回复
 7. [`buildAssistantReply()`](/Users/xiemin/monter/dingtalk-admin-assistant/src/modules/assistant/reply-builder.ts)
    只在模型生成失败时兜底
+
+### 当前模式与工具策略
+
+当前项目已经明确采用“该查就查、该聊就聊”的策略：
+
+| `decision.mode` | 含义 | `toolPlan` |
+| --- | --- | --- |
+| `internal_knowledge` | 公司制度、福利、考勤、绩效、合同等内部知识 | `knowledge` |
+| `task` | 请假、报销、审批、OA、流程入口 | `task` |
+| `open_response` | 闲聊、天气、攻略、通用知识、开放回答 | `none` |
+| `clarify` | 信息不足、指代不明 | `none` |
+
+也就是说：
+
+- `迟到扣钱制度` -> 查内部知识文档
+- `我要请假` -> 查事务入口
+- `北京七日游攻略` -> 不查公司知识库，直接模型回答
+- `这个怎么办` -> 先追问

@@ -118,7 +118,7 @@ export function createRequestRouter(input: {
   return {
     async route(request: RequestRouteInput): Promise<AssistantResolution> {
       switch (request.intent.mode) {
-        case "knowledge": {
+        case "internal_knowledge": {
           const knowledgeResult = await searchKnowledge({
             query: request.intent.knowledgeHint ?? request.query,
             localRetriever: input.localRetriever,
@@ -147,11 +147,13 @@ export function createRequestRouter(input: {
         case "task":
           // 任务请求允许上游透传结构化 taskType；没有时就退回 query 关键词解析。
           return buildTaskResolution(input.taskCatalog, request);
-        case "chat":
+        case "open_response":
           return {
-            kind: "smalltalk",
+            kind: "open_response",
             intent: "smalltalk",
-            reply: "你好，我可以帮你查行政制度或办理入口。"
+            // open_response 代表“直接交给模型回答”，这里保留 query 作为兜底事实，
+            // 方便 response generator 在无工具场景下继续自然作答。
+            reply: request.query
           };
         case "clarify":
           return buildClarificationResolution({

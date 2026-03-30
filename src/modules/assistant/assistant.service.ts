@@ -6,6 +6,7 @@ import type { ConversationContextTurn } from "../logging/conversation-context.se
 import type { ConversationLogRepositoryLike } from "../logging/conversation-log.types";
 import type { KnowledgeRetriever } from "../knowledge/retriever.types";
 import { buildAssistantReply } from "./reply-builder";
+import type { AssistantResolution } from "./assistant.types";
 import type { ResponseGenerator } from "./response-generator";
 import {
   buildClarificationResolution,
@@ -18,6 +19,14 @@ export type AssistantReplyInput = {
   sessionId?: string;
   conversationId?: string;
   userId?: string;
+};
+
+export type AssistantDebugReply = {
+  reply: string;
+  conversationContext: ConversationContextTurn[];
+  intent: IntentAnalysis;
+  resolution: AssistantResolution;
+  usedResponseGenerator: boolean;
 };
 
 type ConversationContextLoader = {
@@ -44,12 +53,26 @@ function normalizeReplyInput(
 
 function buildDefaultIntentAnalysis(): IntentAnalysis {
   return {
-    mode: "knowledge",
+    mode: "internal_knowledge",
     intentConfidence: 1,
     needKnowledge: true,
     needTaskResolution: false,
+    toolPlan: "knowledge",
     topicShift: false,
     intent: "knowledge_query",
+    source: "fallback"
+  };
+}
+
+function buildClarificationIntentAnalysis(): IntentAnalysis {
+  return {
+    mode: "clarify",
+    intentConfidence: 0,
+    needKnowledge: false,
+    needTaskResolution: false,
+    toolPlan: "none",
+    topicShift: false,
+    intent: "unknown",
     source: "fallback"
   };
 }
@@ -122,67 +145,92 @@ export function createAssistantService(input: {
     }
   }
 
+  async function resolveReply(
+    rawInput: string | AssistantReplyInput
+  ): Promise<AssistantDebugReply> {
+    const replyInput = normalizeReplyInput(rawInput);
+    const conversationContext = await loadConversationContext(replyInput.sessionId);
+    let intent: IntentAnalysis | null = null;
+
+    if (input.analyzer) {
+      try {
+        intent = await input.analyzer.analyze({
+          query: replyInput.query,
+          conversationContext
+        });
+      } catch {
+        // analyzer 失效时不继续猜测路由，直接返回保守澄清，
+        // 避免把分类异常放大成错误答案或错误入口。
+        const fallbackResolution = buildClarificationResolution();
+
+        return {
+          reply: buildAssistantReply(fallbackResolution),
+          conversationContext,
+          intent: buildClarificationIntentAnalysis(),
+          resolution: fallbackResolution,
+          usedResponseGenerator: false
+        };
+      }
+    }
+
+    // assistant service 自己不判断知识/事务/人工，
+    // 它只负责串起“分析意图 -> 路由 -> 拼回复”的主流程。
+    // 未接分析器时，默认按知识问答路径走，兼容现有单一路径调用方。
+    const resolvedIntent = intent ?? buildDefaultIntentAnalysis();
+    const resolution = await router.route({
+      query: replyInput.query,
+      intent: resolvedIntent,
+      // taskHint 是决策器给事务 provider 的结构化提示，
+      // 现在先直接透传给旧 router，帮助事务命中更稳定。
+      taskType: resolvedIntent.taskHint
+    });
+    const generatedReply = input.responseGenerator
+      ? await input.responseGenerator.generate({
+          query: replyInput.query,
+          conversationContext,
+          resolution
+        })
+      : null;
+    const reply = generatedReply ?? buildAssistantReply(resolution);
+
+    await appendConversationLog({
+      sessionId: replyInput.sessionId,
+      conversationId: replyInput.conversationId,
+      userId: replyInput.userId,
+      query: replyInput.query,
+      content: replyInput.query,
+      role: "user",
+      routeType: resolvedIntent.intent,
+      routeConfidence: resolvedIntent.intentConfidence
+    });
+    await appendConversationLog({
+      sessionId: replyInput.sessionId,
+      conversationId: replyInput.conversationId,
+      userId: replyInput.userId,
+      query: replyInput.query,
+      content: reply,
+      role: "assistant",
+      routeType: resolution.intent,
+      routeConfidence: resolvedIntent.intentConfidence
+    });
+
+    return {
+      reply,
+      conversationContext,
+      intent: resolvedIntent,
+      resolution,
+      usedResponseGenerator: Boolean(generatedReply)
+    };
+  }
+
   return {
     async reply(rawInput: string | AssistantReplyInput) {
-      const replyInput = normalizeReplyInput(rawInput);
-      const conversationContext = await loadConversationContext(replyInput.sessionId);
-      let intent: IntentAnalysis | null = null;
+      const result = await resolveReply(rawInput);
 
-      if (input.analyzer) {
-        try {
-          intent = await input.analyzer.analyze({
-            query: replyInput.query,
-            conversationContext
-          });
-        } catch {
-          // analyzer 失效时不继续猜测路由，直接返回保守澄清，
-          // 避免把分类异常放大成错误答案或错误入口。
-          return buildAssistantReply(buildClarificationResolution());
-        }
-      }
-
-      // assistant service 自己不判断知识/事务/人工，
-      // 它只负责串起“分析意图 -> 路由 -> 拼回复”的主流程。
-      // 未接分析器时，默认按知识问答路径走，兼容现有单一路径调用方。
-      const resolvedIntent = intent ?? buildDefaultIntentAnalysis();
-      const resolution = await router.route({
-        query: replyInput.query,
-        intent: resolvedIntent,
-        // taskHint 是决策器给事务 provider 的结构化提示，
-        // 现在先直接透传给旧 router，帮助事务命中更稳定。
-        taskType: resolvedIntent.taskHint
-      });
-      const generatedReply = input.responseGenerator
-        ? await input.responseGenerator.generate({
-            query: replyInput.query,
-            conversationContext,
-            resolution
-          })
-        : null;
-      const reply = generatedReply ?? buildAssistantReply(resolution);
-
-      await appendConversationLog({
-        sessionId: replyInput.sessionId,
-        conversationId: replyInput.conversationId,
-        userId: replyInput.userId,
-        query: replyInput.query,
-        content: replyInput.query,
-        role: "user",
-        routeType: resolvedIntent.intent,
-        routeConfidence: resolvedIntent.intentConfidence
-      });
-      await appendConversationLog({
-        sessionId: replyInput.sessionId,
-        conversationId: replyInput.conversationId,
-        userId: replyInput.userId,
-        query: replyInput.query,
-        content: reply,
-        role: "assistant",
-        routeType: resolution.intent,
-        routeConfidence: resolvedIntent.intentConfidence
-      });
-
-      return reply;
+      return result.reply;
+    },
+    async replyWithDebug(rawInput: string | AssistantReplyInput) {
+      return resolveReply(rawInput);
     }
   };
 }
