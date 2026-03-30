@@ -2,7 +2,7 @@ import type { ConversationContextTurn } from "../logging/conversation-context.se
 import type {
   AssistantDecision,
   AssistantMode,
-  AssistantToolPlan
+  AssistantToolPlan,
 } from "./intent.types";
 
 export type ModelIntentClassifierInput = {
@@ -12,7 +12,7 @@ export type ModelIntentClassifierInput = {
 
 export type ModelIntentClassifier = {
   classify(
-    input: string | ModelIntentClassifierInput
+    input: string | ModelIntentClassifierInput,
   ): Promise<AssistantDecision>;
 };
 
@@ -27,7 +27,7 @@ const SUPPORTED_MODES: AssistantMode[] = [
   "internal_knowledge",
   "task",
   "open_response",
-  "clarify"
+  "clarify",
 ];
 const DEFAULT_CLARIFY_QUESTION =
   "我先确认一下，你是想查制度说明，还是想办理流程？";
@@ -48,7 +48,11 @@ function clampConfidence(value: unknown) {
   return Math.max(0, Math.min(1, value));
 }
 
-function fallbackToolUsageByMode(mode: AssistantMode) {
+function fallbackToolUsageByMode(mode: AssistantMode): {
+  needKnowledge: boolean;
+  needTaskResolution: boolean;
+  toolPlan: AssistantToolPlan;
+} {
   return {
     needKnowledge: mode === "internal_knowledge",
     needTaskResolution: mode === "task",
@@ -57,7 +61,7 @@ function fallbackToolUsageByMode(mode: AssistantMode) {
         ? "knowledge"
         : mode === "task"
           ? "task"
-          : "none"
+          : "none",
   };
 }
 
@@ -69,7 +73,7 @@ function buildFallbackDecision(): AssistantDecision {
     needTaskResolution: false,
     toolPlan: "none",
     topicShift: false,
-    clarifyQuestion: DEFAULT_CLARIFY_QUESTION
+    clarifyQuestion: DEFAULT_CLARIFY_QUESTION,
   };
 }
 
@@ -121,7 +125,7 @@ function extractDecisionFromContent(content: string): AssistantDecision {
         : {}),
       ...(clarifyQuestion ? { clarifyQuestion } : {}),
       ...(knowledgeHint ? { knowledgeHint } : {}),
-      ...(taskHint ? { taskHint } : {})
+      ...(taskHint ? { taskHint } : {}),
     };
   } catch {
     // 大模型偶发返回非 JSON 时，统一降级到 clarify，
@@ -141,11 +145,11 @@ function formatConversationContext(turns: ConversationContextTurn[] = []) {
 }
 
 function normalizeClassifierInput(
-  input: string | ModelIntentClassifierInput
+  input: string | ModelIntentClassifierInput,
 ): ModelIntentClassifierInput {
   if (typeof input === "string") {
     return {
-      query: input
+      query: input,
     };
   }
 
@@ -159,8 +163,8 @@ function formatSiliconFlowLog(message: string) {
 function buildDecisionSystemPrompt() {
   return [
     "你是企业员工助手的决策引擎，只能输出 JSON。",
-    'mode 只能是 internal_knowledge、task、open_response、clarify 其中之一。',
-    'toolPlan 只能是 none、knowledge、task 其中之一。',
+    "mode 只能是 internal_knowledge、task、open_response、clarify 其中之一。",
+    "toolPlan 只能是 none、knowledge、task 其中之一。",
     "意图判断只看用户当前想做什么，不要根据你自己是否知道答案来决定 mode。",
     "请结合最近对话上下文判断是否发生了话题切换。",
     "低置信度时不要硬判，应该返回 clarify。",
@@ -184,12 +188,12 @@ function buildDecisionSystemPrompt() {
     '用户：“我要请假” -> {"mode":"task","intentConfidence":0.95,"needKnowledge":false,"needTaskResolution":true,"toolPlan":"task","topicShift":false,"taskHint":"leave_application"}',
     '用户：“你是谁” -> {"mode":"open_response","intentConfidence":0.95,"needKnowledge":false,"needTaskResolution":false,"toolPlan":"none","topicShift":false}',
     '用户：“北京七日游攻略” -> {"mode":"open_response","intentConfidence":0.94,"needKnowledge":false,"needTaskResolution":false,"toolPlan":"none","topicShift":false}',
-    '用户：“这个怎么办” -> {"mode":"clarify","intentConfidence":0.3,"needKnowledge":false,"needTaskResolution":false,"toolPlan":"none","topicShift":false,"clarifyQuestion":"你是想查制度说明，还是想办理流程？"}'
+    '用户：“这个怎么办” -> {"mode":"clarify","intentConfidence":0.3,"needKnowledge":false,"needTaskResolution":false,"toolPlan":"none","topicShift":false,"clarifyQuestion":"你是想查制度说明，还是想办理流程？"}',
   ].join("\n");
 }
 
 export function createModelIntentClassifier(
-  input: CreateModelIntentClassifierInput
+  input: CreateModelIntentClassifierInput,
 ): ModelIntentClassifier {
   const requestFetch = input.fetch ?? fetch;
   const baseUrl = input.baseUrl.replace(/\/$/, "");
@@ -201,39 +205,39 @@ export function createModelIntentClassifier(
       try {
         console.info(
           formatSiliconFlowLog(
-            `request model="${input.model}" query="${normalizedInput.query}"`
-          )
+            `request model="${input.model}" query="${normalizedInput.query}"`,
+          ),
         );
 
         const response = await requestFetch(`${baseUrl}/chat/completions`, {
           method: "POST",
           headers: {
             "Content-Type": "application/json",
-            Authorization: `Bearer ${input.apiKey}`
+            Authorization: `Bearer ${input.apiKey}`,
           },
           body: JSON.stringify({
             model: input.model,
             temperature: 0,
             response_format: {
-              type: "json_object"
+              type: "json_object",
             },
             messages: [
               {
                 role: "system",
-                content: buildDecisionSystemPrompt()
+                content: buildDecisionSystemPrompt(),
               },
               {
                 role: "user",
                 content: [
                   formatConversationContext(
-                    normalizedInput.conversationContext ?? []
+                    normalizedInput.conversationContext ?? [],
                   ),
                   `当前用户消息：${normalizedInput.query}`,
-                  "请直接返回 JSON 决策结果，不要输出额外解释。"
-                ].join("\n\n")
-              }
-            ]
-          })
+                  "请直接返回 JSON 决策结果，不要输出额外解释。",
+                ].join("\n\n"),
+              },
+            ],
+          }),
         });
 
         if (!response.ok) {
@@ -249,13 +253,13 @@ export function createModelIntentClassifier(
         };
 
         const decision = extractDecisionFromContent(
-          payload.choices?.[0]?.message?.content ?? ""
+          payload.choices?.[0]?.message?.content ?? "",
         );
 
         console.info(
           formatSiliconFlowLog(
-            `response mode=${decision.mode} query="${normalizedInput.query}"`
-          )
+            `response mode=${decision.mode} query="${normalizedInput.query}"`,
+          ),
         );
 
         return decision;
@@ -265,13 +269,13 @@ export function createModelIntentClassifier(
         const reason = "network down";
         console.warn(
           formatSiliconFlowLog(
-            `response mode=clarify query="${normalizedInput.query}" reason="${reason}"`
-          )
+            `response mode=clarify query="${normalizedInput.query}" reason="${reason}"`,
+          ),
         );
 
         return buildFallbackDecision();
       }
-    }
+    },
   };
 }
 

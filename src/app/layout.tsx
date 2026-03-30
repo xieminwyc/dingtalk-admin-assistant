@@ -1,14 +1,19 @@
-import type { Metadata } from "next";
+import type { Metadata, Viewport } from "next";
 import "./globals.css";
 
-// 先把全站元信息统一放在 layout，后面补品牌名或分享信息时只改这一处。
 export const metadata: Metadata = {
-  title: "DingTalk Admin Assistant",
-  description: "钉钉行政万事通 MVP"
+  title: "万事通",
+  description: "钉钉行政万事通 — 找制度、找对接人、找流程、帮写作",
+};
+
+export const viewport: Viewport = {
+  width: "device-width",
+  initialScale: 1,
+  maximumScale: 1,
 };
 
 export default function RootLayout({
-  children
+  children,
 }: Readonly<{
   children: React.ReactNode;
 }>) {

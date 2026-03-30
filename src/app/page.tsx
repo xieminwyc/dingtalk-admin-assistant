@@ -5,7 +5,11 @@ import { useRef, useState } from "react";
 
 import type { EntryMode } from "@/modules/assistant/entry-mode.types";
 
-import { homeEntryCards, quickLinks, recommendedTeammates } from "./home-config";
+import {
+  homeEntryCards,
+  quickLinks,
+  recommendedTeammates,
+} from "./home-config";
 
 type ChatEntry = {
   id: string;
@@ -40,7 +44,9 @@ export default function Home() {
   const [sessionId] = useState(createSessionId);
   const [draft, setDraft] = useState("");
   const [messages, setMessages] = useState<ChatEntry[]>([]);
-  const [activeEntryMode, setActiveEntryMode] = useState<EntryMode | null>(null);
+  const [activeEntryMode, setActiveEntryMode] = useState<EntryMode | null>(
+    null,
+  );
   const [isSending, setIsSending] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const textareaRef = useRef<HTMLTextAreaElement | null>(null);
@@ -60,7 +66,9 @@ export default function Home() {
 
   function replaceMessage(messageId: string, nextMessage: ChatEntry) {
     setMessages((current) =>
-      current.map((message) => (message.id === messageId ? nextMessage : message))
+      current.map((message) =>
+        message.id === messageId ? nextMessage : message,
+      ),
     );
   }
 
@@ -75,7 +83,7 @@ export default function Home() {
     const userMessage: ChatEntry = {
       id: `user-${Date.now()}`,
       role: "user",
-      content: message
+      content: message,
     };
     const thinkingId = `assistant-thinking-${Date.now()}`;
 
@@ -85,8 +93,8 @@ export default function Home() {
       {
         id: thinkingId,
         role: "assistant",
-        content: "AI 正在思考..."
-      }
+        content: "AI 正在思考...",
+      },
     ]);
     setDraft("");
     setError(null);
@@ -100,15 +108,15 @@ export default function Home() {
       const response = await fetch("/api/dingtalk/webhook", {
         method: "POST",
         headers: {
-          "Content-Type": "application/json"
+          "Content-Type": "application/json",
         },
         body: JSON.stringify({
           sessionId,
           entryMode: resolvedEntryMode,
           text: {
-            content: message
-          }
-        })
+            content: message,
+          },
+        }),
       });
       const payload = (await response.json()) as WebhookReply;
 
@@ -119,7 +127,7 @@ export default function Home() {
       replaceMessage(thinkingId, {
         id: thinkingId,
         role: "assistant",
-        content: payload.reply ?? "暂时没有拿到回复。"
+        content: payload.reply ?? "暂时没有拿到回复。",
       });
     } catch (caughtError) {
       const errorMessage =
@@ -128,7 +136,7 @@ export default function Home() {
       replaceMessage(thinkingId, {
         id: thinkingId,
         role: "assistant",
-        content: "抱歉，这次没有成功返回结果，请稍后再试。"
+        content: "抱歉，这次没有成功返回结果，请稍后再试。",
       });
       setError(errorMessage);
     } finally {
@@ -172,7 +180,9 @@ export default function Home() {
           <article
             key={card.title}
             className={`portal-entry-card${
-              activeEntryMode === card.entryMode ? " portal-entry-card-active" : ""
+              activeEntryMode === card.entryMode
+                ? " portal-entry-card-active"
+                : ""
             }`}
           >
             <div className="portal-entry-head">
@@ -191,7 +201,9 @@ export default function Home() {
             <p className="portal-entry-helper">{card.helper}</p>
             <button
               className="portal-entry-example"
-              onClick={() => void sendMessage(card.exampleQuestion, card.entryMode)}
+              onClick={() =>
+                void sendMessage(card.exampleQuestion, card.entryMode)
+              }
               type="button"
             >
               {card.exampleQuestion}
@@ -202,12 +214,15 @@ export default function Home() {
 
       <section className="portal-team-card">
         <div className="portal-section-head">
-          <h2>万事通的同事们</h2>
-          {activeEntryMode ? <span>当前模式：{activeEntryMode}</span> : <span>点击卡片即可切换模式</span>}
+          <h2>
+            万事通的同事们 <span className="portal-badge">①</span>
+          </h2>
+          {activeEntryMode ? <span>当前：{activeEntryMode}</span> : null}
         </div>
         <div className="portal-team-list">
           {recommendedTeammates.map((teammate) => (
-            <div key={teammate} className="portal-pill">
+            <div key={teammate} className="portal-teammate-pill">
+              <span className="portal-teammate-icon">AI</span>
               {teammate}
             </div>
           ))}
@@ -215,7 +230,7 @@ export default function Home() {
         <div className="portal-quick-links">
           {quickLinks.map((link) => (
             <span key={link} className="portal-quick-link">
-              {link}
+              🔗 {link}
             </span>
           ))}
         </div>
@@ -223,8 +238,8 @@ export default function Home() {
 
       <section className="portal-chat-card">
         <div className="portal-section-head">
-          <h2>同页对话区</h2>
-          <span>{isSending ? "处理中..." : "准备就绪"}</span>
+          <h2>有问题尽管问我～</h2>
+          <span>{isSending ? "处理中..." : ""}</span>
         </div>
 
         <div className="portal-chat-history">
@@ -262,7 +277,11 @@ export default function Home() {
             rows={1}
           />
           <div className="composer-actions">
-            {error ? <p className="composer-error">{error}</p> : <span className="portal-input-hint">Shift + Enter 换行</span>}
+            {error ? (
+              <p className="composer-error">{error}</p>
+            ) : (
+              <span className="portal-input-hint">Shift + Enter 换行</span>
+            )}
             <button
               className="composer-button"
               disabled={isSending}
