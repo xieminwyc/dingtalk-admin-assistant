@@ -1,0 +1,115 @@
+<h2>灵犀助手首页信息架构</h2>
+<p class="subtitle">方案 2：混合能力型 MVP。重点确认区域结构、入口层级和同页对话关系。</p>
+
+<div class="cards">
+  <div class="card" data-choice="recommended" onclick="toggleSelect(this)">
+    <div class="card-image">
+      <div class="mockup">
+        <div class="mockup-header">推荐方案 A：同页工作台</div>
+        <div class="mockup-body" style="padding: 0;">
+          <div style="background: linear-gradient(135deg, #0f5bd7 0%, #32c5ff 100%); color: white; padding: 26px 24px 70px; border-radius: 24px 24px 0 0; position: relative; overflow: hidden;">
+            <div style="position:absolute; inset:auto -20px -20px auto; width:160px; height:160px; border-radius:999px; background:rgba(255,255,255,.14);"></div>
+            <div style="position:absolute; inset:18px auto auto 18px; width:110px; height:110px; border-radius:999px; background:rgba(255,255,255,.12);"></div>
+            <div style="text-align:center; position:relative; z-index:1;">
+              <div style="font-size:14px; opacity:.88; margin-bottom:10px;">早上好，黄鹏</div>
+              <div style="font-size:30px; font-weight:800; line-height:1.35;">我是灵犀，您的全能 AI 工作搭子。</div>
+            </div>
+          </div>
+
+          <div style="padding: 0 18px 18px; margin-top: -28px;">
+            <div style="background: white; border: 3px solid #6aa7ff; box-shadow: 0 12px 36px rgba(50,90,180,.18); border-radius: 999px; padding: 16px 22px; font-size: 16px; color: #7a8aa0;">
+              问我关于制度、流程、写作或灵感...
+            </div>
+          </div>
+
+          <div style="padding: 0 18px 18px; display:grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 14px;">
+            <div style="background:white; border:1px solid #edf1f7; border-radius:18px; padding:16px; box-shadow:0 8px 24px rgba(15,23,42,.05);">
+              <div style="display:flex; justify-content:space-between; gap:12px; font-weight:700; color:#232b3a;">
+                <span>找制度</span><span style="color:#99a3b2; font-size:13px;">问制度、问政策</span>
+              </div>
+              <div style="margin-top:14px; background:#f5f7fb; border-radius:12px; padding:12px 14px; color:#2f3847;">雅斯特美途酒店工程验收结果如何？</div>
+            </div>
+            <div style="background:white; border:1px solid #edf1f7; border-radius:18px; padding:16px; box-shadow:0 8px 24px rgba(15,23,42,.05);">
+              <div style="display:flex; justify-content:space-between; gap:12px; font-weight:700; color:#232b3a;">
+                <span>找到接人</span><span style="color:#99a3b2; font-size:13px;">问业务对接人</span>
+              </div>
+              <div style="margin-top:14px; background:#f5f7fb; border-radius:12px; padding:12px 14px; color:#2f3847;">PMS 制卡问题应该找谁处理？</div>
+            </div>
+            <div style="background:white; border:1px solid #edf1f7; border-radius:18px; padding:16px; box-shadow:0 8px 24px rgba(15,23,42,.05);">
+              <div style="display:flex; justify-content:space-between; gap:12px; font-weight:700; color:#232b3a;">
+                <span>找流程</span><span style="color:#99a3b2; font-size:13px;">问流程、问系统</span>
+              </div>
+              <div style="margin-top:14px; background:#f5f7fb; border-radius:12px; padding:12px 14px; color:#2f3847;">帮我打开慧管家</div>
+            </div>
+            <div style="background:white; border:1px solid #edf1f7; border-radius:18px; padding:16px; box-shadow:0 8px 24px rgba(15,23,42,.05);">
+              <div style="display:flex; justify-content:space-between; gap:12px; font-weight:700; color:#232b3a;">
+                <span>图片生成</span><span style="color:#99a3b2; font-size:13px;">百变风格、随心生成</span>
+              </div>
+              <div style="margin-top:14px; background:#f5f7fb; border-radius:12px; padding:12px 14px; color:#2f3847;">画一幅江南春景图</div>
+            </div>
+            <div style="background:white; border:1px solid #edf1f7; border-radius:18px; padding:16px; box-shadow:0 8px 24px rgba(15,23,42,.05);">
+              <div style="display:flex; justify-content:space-between; gap:12px; font-weight:700; color:#232b3a;">
+                <span>帮我写作</span><span style="color:#99a3b2; font-size:13px;">方案汇报、一键成文</span>
+              </div>
+              <div style="margin-top:14px; background:#f5f7fb; border-radius:12px; padding:12px 14px; color:#2f3847;">帮我写一份团建策划</div>
+            </div>
+            <div style="background:linear-gradient(135deg, #eef5ff 0%, #f7fbff 100%); border:1px dashed #b7d1ff; border-radius:18px; padding:16px; color:#4f6f9c;">
+              <div style="font-weight:700;">预留扩展区</div>
+              <div style="margin-top:10px; font-size:14px; line-height:1.6;">可放常用入口、快捷问题或后续推荐内容。</div>
+            </div>
+          </div>
+
+          <div style="padding: 0 18px 18px;">
+            <div style="background:white; border-radius:22px; border:1px solid #edf1f7; box-shadow:0 8px 24px rgba(15,23,42,.05); padding:18px;">
+              <div style="font-weight:700; color:#2b3550; margin-bottom:14px;">灵犀助手的同事们</div>
+              <div style="display:flex; gap:12px; margin-bottom:16px;">
+                <div style="flex:1; background:#f7faff; border-radius:16px; padding:14px;">日程助理</div>
+                <div style="flex:1; background:#f7faff; border-radius:16px; padding:14px;">律政助手</div>
+                <div style="flex:1; background:#f7faff; border-radius:16px; padding:14px;">查询状态</div>
+              </div>
+              <div style="background:#fbfcfe; border:1px solid #eef2f7; border-radius:18px; padding:18px;">
+                <div style="margin-bottom:10px; color:#90a0b5;">有问题尽管问我～</div>
+                <div style="display:flex; align-items:center; justify-content:space-between; gap:18px;">
+                  <div style="color:#b2bcc8;">底部常驻输入区，点击卡片后在这里继续对话</div>
+                  <div style="width:40px; height:40px; border-radius:999px; background:#d6e5ff;"></div>
+                </div>
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+    <div class="card-body">
+      <h3>推荐方向</h3>
+      <p>首页即工作台。欢迎区、搜索框、五张业务卡、同事推荐、底部输入区全部放在同一屏流程里。</p>
+    </div>
+  </div>
+
+  <div class="card" data-choice="compact" onclick="toggleSelect(this)">
+    <div class="card-image">
+      <div class="mockup">
+        <div class="mockup-header">备选方案 B：更紧凑的卡片优先</div>
+        <div class="mockup-body" style="padding: 18px;">
+          <div style="display:grid; gap:14px;">
+            <div style="height:110px; border-radius:24px; background:linear-gradient(135deg,#0f5bd7,#32c5ff);"></div>
+            <div style="height:56px; border-radius:999px; background:#fff; border:2px solid #8bb7ff;"></div>
+            <div style="display:grid; grid-template-columns:repeat(2,minmax(0,1fr)); gap:12px;">
+              <div style="height:88px; border-radius:18px; background:#fff;"></div>
+              <div style="height:88px; border-radius:18px; background:#fff;"></div>
+              <div style="height:88px; border-radius:18px; background:#fff;"></div>
+              <div style="height:88px; border-radius:18px; background:#fff;"></div>
+              <div style="height:88px; border-radius:18px; background:#fff;"></div>
+              <div style="height:88px; border-radius:18px; background:#eef5ff; border:1px dashed #b7d1ff;"></div>
+            </div>
+            <div style="height:120px; border-radius:22px; background:#fff;"></div>
+            <div style="height:110px; border-radius:22px; background:#fff;"></div>
+          </div>
+        </div>
+      </div>
+    </div>
+    <div class="card-body">
+      <h3>更紧凑</h3>
+      <p>手机首屏能看到更多内容，但和你的参考图相比会少一点“蓝色头图”的仪式感。</p>
+    </div>
+  </div>
+</div>
