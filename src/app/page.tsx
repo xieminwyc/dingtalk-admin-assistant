@@ -15,6 +15,7 @@ type ChatEntry = {
   id: string;
   role: "user" | "assistant";
   content: string;
+  isThinking?: boolean;
 };
 
 type WebhookReply = {
@@ -40,6 +41,8 @@ function buildGreeting() {
   return "晚上好";
 }
 
+const DEFAULT_PLACEHOLDER = "输入你想问的问题，或让我帮你写点什么";
+
 export default function Home() {
   const [sessionId] = useState(createSessionId);
   const [draft, setDraft] = useState("");
@@ -50,6 +53,13 @@ export default function Home() {
   const [isSending, setIsSending] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const textareaRef = useRef<HTMLTextAreaElement | null>(null);
+
+  // Find the active card config for mode panel
+  const activeCard = activeEntryMode
+    ? homeEntryCards.find((c) => c.entryMode === activeEntryMode)
+    : null;
+
+  const currentPlaceholder = activeCard?.placeholder ?? DEFAULT_PLACEHOLDER;
 
   function resizeComposer() {
     if (!textareaRef.current) {
@@ -62,6 +72,13 @@ export default function Home() {
 
   function focusComposer() {
     textareaRef.current?.focus();
+  }
+
+  function fillComposer(text: string) {
+    setDraft(text);
+    focusComposer();
+    // allow DOM update before resize
+    setTimeout(resizeComposer, 0);
   }
 
   function replaceMessage(messageId: string, nextMessage: ChatEntry) {
@@ -94,6 +111,7 @@ export default function Home() {
         id: thinkingId,
         role: "assistant",
         content: "AI 正在思考...",
+        isThinking: true,
       },
     ]);
     setDraft("");
@@ -156,14 +174,23 @@ export default function Home() {
     }
   }
 
-  function handleCardSelect(entryMode: EntryMode) {
+  // Click the card body → activate mode + focus input (no auto-send)
+  function handleCardActivate(entryMode: EntryMode) {
     setActiveEntryMode(entryMode);
     setError(null);
     focusComposer();
   }
 
+  // Click an example question or quick tag → fill input (not send)
+  function handleFillExample(text: string, entryMode: EntryMode) {
+    setActiveEntryMode(entryMode);
+    setError(null);
+    fillComposer(text);
+  }
+
   return (
     <main className="portal-shell">
+      {/* ── Hero ── */}
       <section className="portal-hero">
         <div className="portal-brand-mark">万</div>
         <div className="portal-hero-copy">
@@ -175,6 +202,7 @@ export default function Home() {
         </div>
       </section>
 
+      {/* ── Entry Cards ── */}
       <section className="portal-card-grid">
         {homeEntryCards.map((card) => (
           <article
@@ -184,27 +212,35 @@ export default function Home() {
                 ? " portal-entry-card-active"
                 : ""
             }`}
+            onClick={() => handleCardActivate(card.entryMode)}
+            role="button"
+            tabIndex={0}
+            onKeyDown={(e) => {
+              if (e.key === "Enter" || e.key === " ") {
+                e.preventDefault();
+                handleCardActivate(card.entryMode);
+              }
+            }}
+            aria-pressed={activeEntryMode === card.entryMode}
           >
             <div className="portal-entry-head">
               <div>
                 <h2>{card.title}</h2>
                 <p>{card.description}</p>
               </div>
-              <button
-                className="portal-entry-activate"
-                onClick={() => handleCardSelect(card.entryMode)}
-                type="button"
-              >
-                使用
-              </button>
+              {activeEntryMode === card.entryMode && (
+                <span className="portal-entry-active-dot" aria-hidden="true" />
+              )}
             </div>
             <p className="portal-entry-helper">{card.helper}</p>
             <button
               className="portal-entry-example"
-              onClick={() =>
-                void sendMessage(card.exampleQuestion, card.entryMode)
-              }
+              onClick={(e) => {
+                e.stopPropagation();
+                handleFillExample(card.exampleQuestion, card.entryMode);
+              }}
               type="button"
+              title="点击填入输入框"
             >
               {card.exampleQuestion}
             </button>
@@ -212,12 +248,49 @@ export default function Home() {
         ))}
       </section>
 
+      {/* ── Immersive Mode Panel ── */}
+      {activeCard && (
+        <section className="portal-mode-panel">
+          <div className="portal-mode-panel-header">
+            <span className="portal-mode-label">当前：{activeCard.title}</span>
+            <button
+              className="portal-mode-clear"
+              type="button"
+              onClick={() => setActiveEntryMode(null)}
+            >
+              ✕ 退出模式
+            </button>
+          </div>
+
+          {activeCard.entryMode === "image_placeholder" ? (
+            <p className="portal-mode-hint">
+              🖼️ 图片生成能力即将上线，你可以先描述你的想法，我们会尽快接入。
+            </p>
+          ) : activeCard.quickTags.length > 0 ? (
+            <div className="portal-mode-tags">
+              {activeCard.quickTags.map((tag) => (
+                <button
+                  key={tag.label}
+                  className="portal-mode-tag"
+                  type="button"
+                  onClick={() =>
+                    handleFillExample(tag.fillText, activeCard.entryMode)
+                  }
+                >
+                  {tag.label}
+                </button>
+              ))}
+            </div>
+          ) : null}
+        </section>
+      )}
+
+      {/* ── Teammates & Quick Links ── */}
       <section className="portal-team-card">
         <div className="portal-section-head">
           <h2>
             万事通的同事们 <span className="portal-badge">①</span>
           </h2>
-          {activeEntryMode ? <span>当前：{activeEntryMode}</span> : null}
         </div>
         <div className="portal-team-list">
           {recommendedTeammates.map((teammate) => (
@@ -236,10 +309,13 @@ export default function Home() {
         </div>
       </section>
 
+      {/* ── Chat ── */}
       <section className="portal-chat-card">
         <div className="portal-section-head">
           <h2>有问题尽管问我～</h2>
-          <span>{isSending ? "处理中..." : ""}</span>
+          {isSending && (
+            <span className="portal-sending-badge">处理中...</span>
+          )}
         </div>
 
         <div className="portal-chat-history">
@@ -251,12 +327,22 @@ export default function Home() {
             messages.map((message) => (
               <article
                 key={message.id}
-                className={`portal-chat-bubble portal-chat-bubble-${message.role}`}
+                className={`portal-chat-bubble portal-chat-bubble-${message.role}${
+                  message.isThinking ? " portal-chat-bubble-thinking" : ""
+                }`}
               >
                 <p className="portal-chat-role">
                   {message.role === "user" ? "你" : "万事通"}
                 </p>
-                <p>{message.content}</p>
+                {message.isThinking ? (
+                  <div className="portal-thinking-dots">
+                    <span />
+                    <span />
+                    <span />
+                  </div>
+                ) : (
+                  <p>{message.content}</p>
+                )}
               </article>
             ))
           )}
@@ -273,8 +359,9 @@ export default function Home() {
             value={draft}
             onChange={handleComposerChange}
             onKeyDown={handleComposerKeyDown}
-            placeholder="输入你想问的问题，或让我帮你写点什么"
+            placeholder={currentPlaceholder}
             rows={1}
+            disabled={isSending}
           />
           <div className="composer-actions">
             {error ? (
