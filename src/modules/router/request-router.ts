@@ -6,12 +6,13 @@ import type { IntentAnalysis } from "../intents/intent-analyzer";
 import type {
   KnowledgeHit,
   KnowledgeRetriever,
-  KnowledgeSearchResult
+  KnowledgeSearchResult,
 } from "../knowledge/retriever.types";
 import type {
   TaskCatalogResolution,
-  TaskCatalogResolveInput
+  TaskCatalogResolveInput,
 } from "../tasks/task-catalog.types";
+import { tryBuildOaApprovalLink } from "../oa/oa-link";
 
 export const DEFAULT_CLARIFICATION_PROMPT =
   "我可以帮你查制度说明，或告诉你办理入口。请再具体描述一下问题。";
@@ -49,7 +50,7 @@ export function buildClarificationResolution(input?: {
     prompt: input?.prompt ?? DEFAULT_CLARIFICATION_PROMPT,
     reason: input?.reason,
     reasonCode: input?.reasonCode,
-    relatedKeywords: input?.relatedKeywords
+    relatedKeywords: input?.relatedKeywords,
   };
 }
 
@@ -60,12 +61,13 @@ function buildKnowledgeResolution(hit: KnowledgeHit): AssistantResolution {
     title: hit.title ?? hit.question,
     answer: hit.answer,
     scope: hit.scope,
-    referenceLabel: hit.referenceLabel
+    referenceLabel: hit.referenceLabel,
+    sourceUrl: hit.url,
   };
 }
 
 function buildContactResolution(
-  resolution: ContactDirectoryResolution
+  resolution: ContactDirectoryResolution,
 ): AssistantResolution {
   return {
     kind: "contact",
@@ -74,7 +76,7 @@ function buildContactResolution(
     contactName: resolution.contactName,
     team: resolution.team,
     description: resolution.description,
-    actionHint: resolution.actionHint
+    actionHint: resolution.actionHint,
   };
 }
 
@@ -82,26 +84,39 @@ function buildContactResolution(
 // 不在这里决定“这个请求是不是事务”，那是 intent analyzer 的职责。
 function buildTaskResolution(
   taskCatalog: TaskCatalogResolver,
-  input: { query: string; taskType?: string }
+  input: { query: string; taskType?: string; corpId?: string },
 ): AssistantResolution {
   const task = taskCatalog.resolve({
     query: input.query,
-    taskType: input.taskType
+    taskType: input.taskType,
   });
   const preparations =
-    task.preparations.length > 0 ? `办理前准备：${task.preparations.join("、")}` : undefined;
+    task.preparations.length > 0
+      ? `办理前准备：${task.preparations.join("、")}`
+      : undefined;
+
+  // processCode 存在时生成钉钉审批操作指引（文字），否则降级使用 entryUrl 或 fallback 文案。
+  // 注意：AppLink 在机器人消息场景下无法跳转（钉钉平台限制），因此改为纯文字指引。
+  const oaEntry = task.processCode
+    ? `在钉钉工作台搜索「${task.title}」，或点击底部导航「工作」→「审批」找到「${task.title}」模板，按提示填写提交。`
+    : null;
+
+  const entry =
+    oaEntry ??
+    task.entryUrl ??
+    `暂未找到可直接跳转的入口，请联系${task.fallbackContact}确认办理方式。`;
 
   return {
     kind: "task",
     intent: "task_request",
     title: task.title,
-    entry:
-      task.entryUrl ??
-      `暂未找到可直接跳转的入口，请联系${task.fallbackContact}确认办理方式。`,
+    entry,
     guidance: [task.description, preparations].filter(Boolean).join("\n"),
     actionType: task.actionType,
     availability: task.availability,
-    availabilityReason: task.availabilityReason
+    availabilityReason: task.availabilityReason,
+    taskType: task.taskType,
+    processCode: task.processCode,
   };
 }
 
@@ -136,6 +151,8 @@ export function createRequestRouter(input: {
   contactDirectory?: ContactDirectoryResolver;
   externalRetriever?: KnowledgeRetriever;
   enableExternalKnowledge?: boolean;
+  // corpId 用于生成钉钉审批直达链接，来自 env.dingtalkCorpId。
+  corpId?: string;
 }) {
   return {
     async route(request: RequestRouteInput): Promise<AssistantResolution> {
@@ -144,13 +161,13 @@ export function createRequestRouter(input: {
           kind: "open_response",
           intent: "smalltalk",
           reply:
-            "图片生成功能即将支持。你可以先告诉我主题、风格和使用场景，我可以先帮你整理提示词。"
+            "图片生成功能即将支持。你可以先告诉我主题、风格和使用场景，我可以先帮你整理提示词。",
         };
       }
 
       if (request.entryMode === "contact" && input.contactDirectory) {
         const contact = input.contactDirectory.resolve({
-          query: request.query
+          query: request.query,
         });
 
         if (contact) {
@@ -164,12 +181,12 @@ export function createRequestRouter(input: {
             query: request.intent.knowledgeHint ?? request.query,
             localRetriever: input.localRetriever,
             externalRetriever: input.externalRetriever,
-            enableExternalKnowledge: input.enableExternalKnowledge
+            enableExternalKnowledge: input.enableExternalKnowledge,
           });
           const hits = knowledgeResult.hits;
           const handoff = evaluateHandoff({
             hitCount: hits.length,
-            topScore: hits[0]?.score ?? 0
+            topScore: hits[0]?.score ?? 0,
           });
 
           if (handoff.required || !hits[0]) {
@@ -179,7 +196,7 @@ export function createRequestRouter(input: {
             return buildClarificationResolution({
               reason: handoff.reason,
               reasonCode,
-              relatedKeywords: knowledgeResult.relatedKeywords
+              relatedKeywords: knowledgeResult.relatedKeywords,
             });
           }
 
@@ -187,20 +204,24 @@ export function createRequestRouter(input: {
         }
         case "task":
           // 任务请求允许上游透传结构化 taskType；没有时就退回 query 关键词解析。
-          return buildTaskResolution(input.taskCatalog, request);
+          return buildTaskResolution(input.taskCatalog, {
+            query: request.query,
+            taskType: request.taskType,
+            corpId: input.corpId,
+          });
         case "open_response":
           return {
             kind: "open_response",
             intent: "smalltalk",
             // open_response 代表“直接交给模型回答”，这里保留 query 作为兜底事实，
             // 方便 response generator 在无工具场景下继续自然作答。
-            reply: request.query
+            reply: request.query,
           };
         case "clarify":
           return buildClarificationResolution({
-            prompt: request.intent.clarifyQuestion
+            prompt: request.intent.clarifyQuestion,
           });
       }
-    }
+    },
   };
 }

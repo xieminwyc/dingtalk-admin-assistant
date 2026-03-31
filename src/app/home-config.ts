@@ -5,6 +5,11 @@ export type QuickTag = {
   fillText: string;
 };
 
+export type HomeEntryTemplate = {
+  label: string;
+  prompt: string;
+};
+
 export type HomeEntryCard = {
   title: string;
   description: string;
@@ -13,6 +18,8 @@ export type HomeEntryCard = {
   entryMode: EntryMode;
   placeholder: string;
   quickTags: QuickTag[];
+  templates?: HomeEntryTemplate[];
+  isPlaceholder?: boolean;
 };
 
 export const homeEntryCards: HomeEntryCard[] = [
@@ -30,6 +37,20 @@ export const homeEntryCards: HomeEntryCard[] = [
       { label: "绩效", fillText: "绩效考核制度是什么？" },
       { label: "福利", fillText: "员工福利有哪些？" },
     ],
+    templates: [
+      {
+        label: "查询特定项目的验收结果",
+        prompt: "雅斯特美途酒店工程验收结果如何？",
+      },
+      {
+        label: "查询工程验收的国家标准",
+        prompt: "请查询工程验收国家标准（如 GB/T 50300-2013）。",
+      },
+      {
+        label: "下载安全施工管理条例",
+        prompt: "帮我找一下安全施工管理条例 PDF 下载链接。",
+      },
+    ],
   },
   {
     title: "找对接人",
@@ -43,6 +64,20 @@ export const homeEntryCards: HomeEntryCard[] = [
       { label: "人力资源", fillText: "人力资源相关咨询找谁？" },
       { label: "OA流程", fillText: "OA流程问题应该找谁？" },
       { label: "IT支持", fillText: "IT支持找谁处理？" },
+    ],
+    templates: [
+      {
+        label: "找项目一级负责人",
+        prompt: "雅斯特酒店项目的一级负责人是谁？",
+      },
+      {
+        label: "找 PMS 故障支持",
+        prompt: "PMS制卡问题应该找谁处理？",
+      },
+      {
+        label: "找 OA 流程处理同学",
+        prompt: "OA流程异常应该找谁处理？",
+      },
     ],
   },
   {
@@ -58,15 +93,40 @@ export const homeEntryCards: HomeEntryCard[] = [
       { label: "权限申请", fillText: "怎么申请系统权限？" },
       { label: "慧管家", fillText: "帮我打开慧管家" },
     ],
+    templates: [
+      {
+        label: "打开智慧管家",
+        prompt: "帮我打开智慧管家系统。",
+      },
+      {
+        label: "发起请假流程",
+        prompt: "我想申请年假，流程怎么走？",
+      },
+      {
+        label: "找到报销办理入口",
+        prompt: "报销流程入口在哪里？",
+      },
+    ],
   },
   {
     title: "图片生成",
     description: "百变风格、随心生成",
-    helper: "先做占位与提示词整理",
-    exampleQuestion: "画一幅江南春景图",
+    helper: "尚未上线，先帮你整理提示词",
+    exampleQuestion: "帮我整理一段江南春景图的提示词",
     entryMode: "image_placeholder",
     placeholder: "描述你想生成的画面：风格、场景、主体...",
     quickTags: [],
+    templates: [
+      {
+        label: "整理宣传海报提示词",
+        prompt: "请帮我整理一组春季酒店宣传海报的提示词。",
+      },
+      {
+        label: "整理产品视觉提示词",
+        prompt: "请帮我整理一组智能前台产品海报的提示词。",
+      },
+    ],
+    isPlaceholder: true,
   },
   {
     title: "帮我写作",
@@ -81,6 +141,20 @@ export const homeEntryCards: HomeEntryCard[] = [
       { label: "通知", fillText: "帮我写一份通知公告" },
       { label: "总结", fillText: "帮我写一份工作总结" },
     ],
+    templates: [
+      {
+        label: "写团建策划",
+        prompt: "帮我写一份 50 人员工团建策划案。",
+      },
+      {
+        label: "润色周报内容",
+        prompt: "请帮我润色这段本周工作总结：",
+      },
+      {
+        label: "整理会议纪要",
+        prompt: "请帮我整理今天项目复盘会的会议纪要。",
+      },
+    ],
   },
 ];
 
@@ -93,4 +167,3 @@ export const quickLinks = [
   "多维表操作视频",
   "钉钉各应用教程入口",
 ];
-

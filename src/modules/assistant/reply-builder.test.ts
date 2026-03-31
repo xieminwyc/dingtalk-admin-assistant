@@ -27,6 +27,8 @@ describe("buildAssistantReply", () => {
       referenceLabel: "考勤制度"
     } satisfies AssistantKnowledgeResolution);
 
+    expect(reply).toContain("知识主题");
+    expect(reply).toContain("补卡流程");
     expect(reply).toContain("补卡申请");
     expect(reply).toContain("适用范围");
     expect(reply).toContain("考勤制度");
@@ -42,6 +44,8 @@ describe("buildAssistantReply", () => {
       availability: "available",
     } satisfies AssistantTaskResolution);
 
+    expect(reply).toContain("事务名称");
+    expect(reply).toContain("请假申请");
     expect(reply).toContain("请假入口");
     expect(reply).toContain("提交审批");
   });

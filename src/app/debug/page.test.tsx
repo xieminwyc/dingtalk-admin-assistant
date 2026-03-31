@@ -43,6 +43,8 @@ describe("DebugPage", () => {
 
     expect(screen.getByText("网页调试聊天")).toBeInTheDocument();
     expect(screen.getByText("本轮调试信息")).toBeInTheDocument();
+    expect(screen.getByText("resolution.kind")).toBeInTheDocument();
+    expect(screen.getByText("usedResponseGenerator")).toBeInTheDocument();
   });
 
   it("sends a debug chat request and renders the returned debug metadata", async () => {

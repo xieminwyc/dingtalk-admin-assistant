@@ -15,6 +15,9 @@ function formatKnowledgeReply(input: {
   referenceLabel?: string;
 }) {
   const lines = [
+    "知识主题",
+    input.title ?? "制度答复",
+    "",
     "结论",
     input.answer,
     "",
@@ -37,6 +40,9 @@ function formatTaskReply(input: {
   availabilityReason?: string;
 }) {
   const lines = [
+    "事务名称",
+    input.title,
+    "",
     "事务入口",
     input.entry,
     "",
@@ -56,12 +62,16 @@ function formatTaskReply(input: {
 }
 
 function formatContactReply(input: {
+  title?: string;
   contactName: string;
   team?: string;
   description: string;
   actionHint?: string;
 }) {
   return [
+    "对接事项",
+    input.title ?? "人工协作",
+    "",
     "对接建议",
     input.contactName,
     input.team ? `团队：${input.team}` : undefined,

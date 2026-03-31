@@ -17,6 +17,7 @@ export type AssistantKnowledgeResolution = {
   answer: string;
   scope?: string;
   referenceLabel?: string;
+  sourceUrl?: string;
 };
 
 export type AssistantTaskResolution = {
@@ -29,6 +30,9 @@ export type AssistantTaskResolution = {
   actionType?: "url" | "api";
   availability?: "available" | "unavailable" | "unknown";
   availabilityReason?: string;
+  // 以下两个字段在 actionType === "api" 时用于触发表单收集流
+  taskType?: string;
+  processCode?: string;
 };
 
 export type AssistantContactResolution = {

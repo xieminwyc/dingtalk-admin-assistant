@@ -163,6 +163,13 @@ describe("POST /api/dingtalk/webhook", () => {
     expect(data.debug?.intent?.knowledgeHint).toBe("年假规则");
     expect(data.debug?.resolution?.kind).toBe("knowledge");
     expect(data.debug?.usedResponseGenerator).toBe(true);
+    expect(data.debug).toEqual(
+      expect.objectContaining({
+        intent: expect.any(Object),
+        resolution: expect.any(Object),
+        usedResponseGenerator: expect.any(Boolean)
+      })
+    );
   });
 
   it("rejects an empty user message", async () => {
