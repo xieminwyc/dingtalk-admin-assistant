@@ -1,10 +1,10 @@
-# 万事通首页下一阶段迭代 Implementation Plan
+# 万事通首页三态工作台迭代 Implementation Plan
 
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
-**Goal:** 在不推翻现有首页工作台架构的前提下，补强模式化回复呈现、最小会话连续性、首页内容真实性和移动端可用性，使首页进入“稳定可继续演进”的 P0 下一阶段。
+**Goal:** 将现有首页升级为 `home / drilldown / chat` 三态工作台，并引入左上角入口触发的历史抽屉、模式化结果层级和最小会话连续性。
 
-**Architecture:** 继续复用现有首页 `src/app/page.tsx`、`/api/dingtalk/webhook` 和 assistant runtime 作为统一链路，不新增独立业务入口。前端优先补强工作台状态承接与展示层，后端补强 mode-aware 回复组织和 debug 可观测性，同时用测试兜住首页交互、路由契约和移动端样式回归。
+**Architecture:** 继续复用现有 `/api/dingtalk/webhook`、assistant runtime 和 `entryMode` 协议，不引入新的后端业务入口。前端把当前单文件首页拆成 `HomeShell + HistoryDrawer + HomeCanvas + DrilldownCanvas + ChatCanvas + Composer` 组合，依旧以本地会话恢复和现有 router/reply-builder 为基础逐步增强，不提前建设完整历史中心或富结构卡片系统。
 
 **Tech Stack:** Next.js App Router、React、TypeScript、Vitest、Testing Library、现有 assistant runtime / router / logging 模块
 
@@ -17,54 +17,235 @@
 
 本次实现聚焦：
 
-- 首页模式化回复的信息层级标准化
-- 首页最小会话连续性增强
-- `home-config` 与实际能力对齐
-- 移动端与基础可访问性回归校验
-- 文档与 debug 信息同步补强
+- 首页三态工作台：`home / drilldown / chat`
+- 左上角入口触发的历史抽屉
+- 首页组件拆分与状态边界清晰化
+- `chat` 结果层级、citation、错误态 / 澄清态 / 占位态
+- 本地会话恢复与轻量会话摘要
+- 移动端、可访问性、`/debug` 可观测性回归
 
 本次不实现：
 
-- 完整历史记录中心或抽屉
+- 完整历史记录中心
+- 多 Agent 切换系统
 - 真实图片生成服务
-- 多 Agent 切换逻辑
-- 结构化复杂卡片系统
-- 持久化数据库版会话日志
+- 数据库版持久化会话日志
+- 复杂富结构消息 schema 或大型卡片组件库
 
 ## Scope Check
 
-该 spec 虽然包含多个“下一步”模块，但它们都服务于同一个子项目：让首页工作台从“已经能用”进入“可稳定继续开发”。因此本次保留单一实现计划，但按 4 个可独立提交的任务拆开，确保每一段都能单独验证和回归。
+该 spec 的新增内容都属于同一个子项目：把首页从“可用的门户页”升级成“可持续使用的工作台”。不需要拆成多个独立计划，但必须按“壳层 / 历史 / 画布 / 回复层 / 回归”拆成可独立提交的任务，避免一次性重写整个首页。
 
 ## File Structure
 
 | 路径 | 职责 |
 | --- | --- |
-| `src/app/page.tsx` | 首页工作台的状态承接、消息呈现、模式化 UI 行为 |
-| `src/app/page.test.tsx` | 首页模式化消息、会话恢复、错误态与移动端行为测试 |
-| `src/app/home-config.ts` | 首页卡片文案、示例问题、快捷标签、同事们与快捷入口配置 |
-| `src/app/globals.css` | 首页消息层级、模式块、移动端与焦点样式 |
-| `src/app/api/dingtalk/webhook/route.ts` | 首页请求边界与 debug 返回契约 |
-| `src/app/api/dingtalk/webhook/route.test.ts` | webhook debug 信息与请求协议回归测试 |
-| `src/modules/assistant/assistant.types.ts` | resolution / debug 返回结构契约 |
-| `src/modules/assistant/reply-builder.ts` | 非模型场景下的 mode-aware 回复兜底文案 |
-| `src/modules/assistant/reply-builder.test.ts` | 各类 resolution 的文本层级测试 |
-| `src/modules/assistant/response-generator.ts` | 模型生成时的 mode-aware 回复约束 |
-| `src/modules/assistant/response-generator.test.ts` | 写作、知识、联系人、流程模式的提示词约束测试 |
-| `src/modules/router/request-router.ts` | 入口模式与 resolution 种类映射 |
-| `src/modules/router/request-router.test.ts` | mode 路由与未命中兜底测试 |
-| `src/modules/logging/conversation-log.repository.ts` | 会话日志的当前内存实现边界 |
-| `src/modules/logging/conversation-context.service.ts` | 最近上下文加载逻辑 |
-| `src/app/debug/page.tsx` | 调试页对首页能力增强后的可观测性承接 |
-| `src/app/debug/page.test.tsx` | 调试页显示 debug 字段的回归测试 |
-| `README.md` | 首页定位、调试页、当前能力范围说明 |
-| `docs/superpowers/specs/2026-03-31-homepage-immersive-v1.1.md` | 主规格同步更新“已完成”部分 |
+| `src/app/page.tsx` | 首页入口，仅负责组装 `HomeShell` |
+| `src/app/page.test.tsx` | 首页三态流转、抽屉开关、发送链路、会话恢复测试 |
+| `src/app/home-config.ts` | 业务卡、模板、快捷标签、同事们、快捷入口配置 |
+| `src/app/globals.css` | 三态工作台、抽屉、消息层级、移动端与焦点样式 |
+| `src/app/_components/home-shell.tsx` | 顶部栏、主状态编排、当前会话选择 |
+| `src/app/_components/history-drawer.tsx` | 历史抽屉、会话摘要列表、`开启新话题` |
+| `src/app/_components/home-canvas.tsx` | `home` 视图：欢迎区、卡片网格、同事们、快捷入口 |
+| `src/app/_components/drilldown-canvas.tsx` | `drilldown` 视图：模式头部、模板列表、返回首页 |
+| `src/app/_components/chat-canvas.tsx` | `chat` 视图：消息流、citation、mode 标签、错误态 |
+| `src/app/_components/composer.tsx` | 底部固定输入区 |
+| `src/app/_components/home-shell.types.ts` | `HomeView`、`ConversationSummary`、前端 `ChatEntry` 契约 |
+| `src/app/debug/page.tsx` | 调试页展示新状态与 debug 字段 |
+| `src/app/debug/page.test.tsx` | 调试页的 debug 信息和 session 回归测试 |
+| `src/app/api/dingtalk/webhook/route.ts` | 维持稳定 debug 字段结构 |
+| `src/app/api/dingtalk/webhook/route.test.ts` | webhook debug 契约回归测试 |
+| `src/modules/assistant/reply-builder.ts` | 兜底文本层级增强 |
+| `src/modules/assistant/reply-builder.test.ts` | `knowledge / task / contact / clarification / placeholder` 文本层级测试 |
+| `src/modules/assistant/assistant.types.ts` | 需要时补齐 citation / meta 返回契约 |
+| `src/modules/router/request-router.ts` | mode-aware resolution 行为保持稳定 |
+| `src/modules/router/request-router.test.ts` | 路由优先级和未命中回归 |
+| `README.md` | 首页工作台现状与 `/debug` 路径说明 |
+| `docs/superpowers/specs/2026-03-31-homepage-immersive-v1.1.md` | 本轮落地后更新“当前已完成” |
 
 ---
 
-### Task 1: 标准化首页模式化回复呈现
+### Task 1: 拆出首页壳层与三态画布
 
 **Files:**
+- Create: `src/app/_components/home-shell.tsx`
+- Create: `src/app/_components/home-canvas.tsx`
+- Create: `src/app/_components/drilldown-canvas.tsx`
+- Create: `src/app/_components/composer.tsx`
+- Create: `src/app/_components/home-shell.types.ts`
 - Modify: `src/app/page.tsx`
+- Modify: `src/app/page.test.tsx`
+
+- [ ] **Step 1: Write the failing tests**
+
+先在 `src/app/page.test.tsx` 增加三态流转的最小断言：
+
+```ts
+render(<Home />);
+await user.click(screen.getByText("找制度"));
+expect(screen.getByText("找制度专家模式")).toBeInTheDocument();
+```
+
+```ts
+await user.click(
+  screen.getByRole("button", { name: "PMS制卡问题应该找谁处理？" })
+);
+expect(screen.getByLabelText("输入消息")).toHaveValue(
+  "PMS制卡问题应该找谁处理？"
+);
+```
+
+```ts
+await user.keyboard("{Enter}");
+expect(screen.getByText("请联系门店系统支持同学处理 PMS 制卡问题。")).toBeInTheDocument();
+```
+
+- [ ] **Step 2: Run test to verify it fails**
+
+Run: `npm test -- --run src/app/page.test.tsx`
+
+Expected: FAIL，因为当前首页还没有 `home / drilldown / chat` 三态，点击卡片不会进入独立的 `drilldown` 画布。
+
+- [ ] **Step 3: Write minimal implementation**
+
+先只做最小壳层拆分：
+
+- 在 `home-shell.types.ts` 定义：
+
+```ts
+export type HomeView = "home" | "drilldown" | "chat";
+
+export type ChatEntry = {
+  id: string;
+  role: "user" | "assistant";
+  content: string;
+  mode?: EntryMode | null;
+  isThinking?: boolean;
+  isError?: boolean;
+};
+```
+
+- `page.tsx` 退化成：
+
+```ts
+export default function Home() {
+  return <HomeShell />;
+}
+```
+
+- `HomeShell` 持有 `view`、`activeEntryMode`、`draft`、`messages`、`isSending`
+- `HomeCanvas` 只负责首页卡片
+- `DrilldownCanvas` 只负责模式头部和模板列表
+- `Composer` 保持底部固定输入
+
+- [ ] **Step 4: Run test to verify it passes**
+
+Run: `npm test -- --run src/app/page.test.tsx`
+
+Expected: PASS
+
+- [ ] **Step 5: Commit**
+
+```bash
+git add src/app/page.tsx src/app/page.test.tsx src/app/_components/home-shell.tsx src/app/_components/home-canvas.tsx src/app/_components/drilldown-canvas.tsx src/app/_components/composer.tsx src/app/_components/home-shell.types.ts
+git commit -m "feat: add homepage shell with three-state canvases"
+```
+
+---
+
+### Task 2: 实现历史抽屉与会话摘要
+
+**Files:**
+- Create: `src/app/_components/history-drawer.tsx`
+- Modify: `src/app/_components/home-shell.tsx`
+- Modify: `src/app/_components/home-shell.types.ts`
+- Modify: `src/app/page.test.tsx`
+- Modify: `src/app/globals.css`
+
+- [ ] **Step 1: Write the failing tests**
+
+在 `src/app/page.test.tsx` 增加历史抽屉行为断言：
+
+```ts
+render(<Home />);
+await user.click(screen.getByRole("button", { name: /历史记录/i }));
+expect(screen.getByText("开启新话题")).toBeInTheDocument();
+```
+
+```ts
+window.localStorage.setItem(
+  "homepage-session",
+  JSON.stringify({
+    currentSessionId: "home-1",
+    sessions: [
+      {
+        sessionId: "home-1",
+        title: "PMS制卡问题应该找谁处理？",
+        updatedAt: Date.now(),
+        messages: [{ id: "m1", role: "user", content: "PMS制卡问题应该找谁处理？" }]
+      }
+    ]
+  })
+);
+render(<Home />);
+await user.click(screen.getByRole("button", { name: /历史记录/i }));
+expect(screen.getByText("PMS制卡问题应该找谁处理？")).toBeInTheDocument();
+```
+
+- [ ] **Step 2: Run test to verify it fails**
+
+Run: `npm test -- --run src/app/page.test.tsx`
+
+Expected: FAIL，因为当前没有历史抽屉，也没有轻量摘要列表。
+
+- [ ] **Step 3: Write minimal implementation**
+
+定义最小摘要结构：
+
+```ts
+export type ConversationSummary = {
+  sessionId: string;
+  title: string;
+  updatedAt: number;
+  isCurrent?: boolean;
+};
+```
+
+在 `HomeShell` 中补充：
+
+- `isHistoryOpen`
+- `conversationSummaries`
+- 本地存储恢复与写回逻辑
+
+历史抽屉只提供：
+
+- 最近 `5 - 10` 条摘要
+- 当前会话高亮
+- `开启新话题`
+
+不要在这一步里加入搜索、删除、分组。
+
+- [ ] **Step 4: Run test to verify it passes**
+
+Run: `npm test -- --run src/app/page.test.tsx`
+
+Expected: PASS
+
+- [ ] **Step 5: Commit**
+
+```bash
+git add src/app/_components/history-drawer.tsx src/app/_components/home-shell.tsx src/app/_components/home-shell.types.ts src/app/page.test.tsx src/app/globals.css
+git commit -m "feat: add homepage history drawer and session summaries"
+```
+
+---
+
+### Task 3: 升级 `chat` 结果层级与 citation 展示
+
+**Files:**
+- Create: `src/app/_components/chat-canvas.tsx`
+- Modify: `src/app/_components/home-shell.types.ts`
+- Modify: `src/app/_components/home-shell.tsx`
 - Modify: `src/app/page.test.tsx`
 - Modify: `src/app/globals.css`
 - Modify: `src/modules/assistant/reply-builder.ts`
@@ -72,34 +253,7 @@
 
 - [ ] **Step 1: Write the failing tests**
 
-先在 `src/modules/assistant/reply-builder.test.ts` 增加 3 个最小断言，锁定 mode-aware 回复层级：
-
-```ts
-expect(
-  buildAssistantReply({
-    kind: "contact",
-    intent: "handoff_request",
-    title: "PMS 制卡问题",
-    contactName: "门店系统支持同学",
-    team: "信息平台主管组",
-    description: "负责门店系统制卡异常排查",
-    actionHint: "建议先附上门店名称和报错截图"
-  })
-).toContain("门店系统支持同学");
-```
-
-```ts
-expect(
-  buildAssistantReply({
-    kind: "task",
-    intent: "task_request",
-    title: "请假申请",
-    entry: "https://oa.example.com/tasks/leave",
-    guidance: "办理前准备：请先确认请假日期",
-    availability: "available"
-  })
-).toContain("https://oa.example.com/tasks/leave");
-```
+先在 `src/modules/assistant/reply-builder.test.ts` 锁定 mode-aware 文本层级：
 
 ```ts
 expect(
@@ -114,38 +268,63 @@ expect(
 ).toContain("《假勤管理办法》");
 ```
 
-然后在 `src/app/page.test.tsx` 补一个首页渲染断言：
+```ts
+expect(
+  buildAssistantReply({
+    kind: "task",
+    intent: "task_request",
+    title: "请假申请",
+    entry: "https://oa.example.com/tasks/leave",
+    guidance: "办理前准备：请先确认请假日期"
+  })
+).toContain("https://oa.example.com/tasks/leave");
+```
+
+然后在 `src/app/page.test.tsx` 增加 `chat` 结果层级断言：
 
 ```ts
-expect(screen.getByText("《假勤管理办法》")).toBeInTheDocument();
+expect(screen.getByText("依据来源")).toBeInTheDocument();
+expect(screen.getByText("KNOWLEDGE")).toBeInTheDocument();
 ```
 
 - [ ] **Step 2: Run test to verify it fails**
 
 Run: `npm test -- --run src/modules/assistant/reply-builder.test.ts src/app/page.test.tsx`
 
-Expected: FAIL，因为当前首页消息气泡还没有针对信息层级做专门呈现，测试中的新断言不会全部满足。
+Expected: FAIL，因为当前 `chat` 呈现仍接近纯文本气泡，没有独立 citation / mode 层级。
 
 - [ ] **Step 3: Write minimal implementation**
 
-实现最小改动：
-
-- 让 `reply-builder` 统一输出更有层级的文本块
-- 在 `src/app/page.tsx` 为助手消息增加 mode-friendly 呈现容器，不改成复杂卡片系统
-- 在 `src/app/globals.css` 为引用、入口链接、提示块增加轻量样式
-
-推荐呈现结构：
+升级前端消息结构，但保持轻量：
 
 ```ts
-type ChatEntry = {
+export type ChatEntry = {
   id: string;
   role: "user" | "assistant";
   content: string;
+  mode?: EntryMode | null;
   isThinking?: boolean;
+  isError?: boolean;
+  citations?: {
+    documentTitle: string;
+    sourceUrl?: string;
+  }[];
+  meta?: {
+    title?: string;
+    scope?: string;
+    contactName?: string;
+    team?: string;
+    entry?: string;
+    actionHint?: string;
+  };
 };
 ```
 
-保持 `content` 仍是字符串，只在前端按段落和换行增强可读性，避免过早引入新的复杂消息 schema。
+实现时：
+
+- `ChatCanvas` 负责消息渲染
+- `reply-builder` 先把知识、流程、联系人兜底文本写得更有层级
+- citation 区块只做轻量列表，不上复杂卡片系统
 
 - [ ] **Step 4: Run test to verify it passes**
 
@@ -156,145 +335,72 @@ Expected: PASS
 - [ ] **Step 5: Commit**
 
 ```bash
-git add src/app/page.tsx src/app/page.test.tsx src/app/globals.css src/modules/assistant/reply-builder.ts src/modules/assistant/reply-builder.test.ts
-git commit -m "feat: standardize homepage mode-aware replies"
+git add src/app/_components/chat-canvas.tsx src/app/_components/home-shell.types.ts src/app/_components/home-shell.tsx src/app/page.test.tsx src/app/globals.css src/modules/assistant/reply-builder.ts src/modules/assistant/reply-builder.test.ts
+git commit -m "feat: add layered chat results and citations"
 ```
 
 ---
 
-### Task 2: 增强首页最小会话连续性
-
-**Files:**
-- Modify: `src/app/page.tsx`
-- Modify: `src/app/page.test.tsx`
-- Modify: `src/app/debug/page.tsx`
-- Modify: `src/app/debug/page.test.tsx`
-
-- [ ] **Step 1: Write the failing tests**
-
-在 `src/app/page.test.tsx` 先锁定两个连续性行为：
-
-```ts
-window.localStorage.setItem(
-  "homepage-session",
-  JSON.stringify({
-    sessionId: "home-keep-1",
-    messages: [
-      { id: "assistant-1", role: "assistant", content: "这是上次的回复" }
-    ]
-  })
-);
-
-render(<Home />);
-
-expect(screen.getByText("这是上次的回复")).toBeInTheDocument();
-```
-
-```ts
-await user.click(screen.getByRole("button", { name: /退出模式/i }));
-expect(screen.getByLabelText("输入消息")).toHaveAttribute(
-  "placeholder",
-  "输入你想问的问题，或让我帮你写点什么"
-);
-```
-
-在 `src/app/debug/page.test.tsx` 增加一条断言，确保 debug 页仍保留单独 session，不受首页 local storage 逻辑污染：
-
-```ts
-expect(screen.getByText(/Session: debug-/)).toBeInTheDocument();
-```
-
-- [ ] **Step 2: Run test to verify it fails**
-
-Run: `npm test -- --run src/app/page.test.tsx src/app/debug/page.test.tsx`
-
-Expected: FAIL，因为首页当前不会从本地恢复消息，也没有测试覆盖退出模式后的默认态恢复。
-
-- [ ] **Step 3: Write minimal implementation**
-
-用最小前端状态持久化实现连续性：
-
-- 首屏从 `localStorage` 恢复 `sessionId`、最近消息和当前模式
-- 每次消息变更后同步写回本地
-- 提供一个明确的新话题入口，至少能清空本地消息并生成新的 `sessionId`
-
-推荐本地结构：
-
-```ts
-type StoredHomepageSession = {
-  sessionId: string;
-  messages: ChatEntry[];
-  activeEntryMode: EntryMode | null;
-};
-```
-
-注意事项：
-
-- 只在浏览器端访问 `localStorage`
-- 不把 debug 页并入同一个存储 key
-- 不尝试在这一任务里接后端持久化历史
-
-- [ ] **Step 4: Run test to verify it passes**
-
-Run: `npm test -- --run src/app/page.test.tsx src/app/debug/page.test.tsx`
-
-Expected: PASS
-
-- [ ] **Step 5: Commit**
-
-```bash
-git add src/app/page.tsx src/app/page.test.tsx src/app/debug/page.tsx src/app/debug/page.test.tsx
-git commit -m "feat: preserve homepage session continuity"
-```
-
----
-
-### Task 3: 校准首页内容配置与实际能力范围
+### Task 4: 对齐配置、模板与 drilldown 内容
 
 **Files:**
 - Modify: `src/app/home-config.ts`
-- Modify: `src/app/page.tsx`
+- Modify: `src/app/_components/home-canvas.tsx`
+- Modify: `src/app/_components/drilldown-canvas.tsx`
 - Modify: `src/app/page.test.tsx`
 - Modify: `README.md`
 
 - [ ] **Step 1: Write the failing tests**
 
-在 `src/app/page.test.tsx` 补一组“配置与展示一致性”断言：
+在 `src/app/page.test.tsx` 加模板和文案一致性断言：
 
 ```ts
-expect(screen.getByText("快速定位制度依据")).toBeInTheDocument();
-expect(screen.getByText("快速找到负责同事")).toBeInTheDocument();
-expect(screen.getByText("直接带你去入口")).toBeInTheDocument();
+render(<Home />);
+await user.click(screen.getByText("找制度"));
+expect(screen.getByText("推荐查询方案")).toBeInTheDocument();
+expect(screen.getByText("查询特定项目的验收结果")).toBeInTheDocument();
 ```
-
-再加一条针对“图片生成占位不是假能力”的断言：
 
 ```ts
 await user.click(screen.getByText("图片生成"));
-expect(screen.getByText(/即将上线/)).toBeInTheDocument();
+expect(screen.getByText(/尚未上线|即将上线/)).toBeInTheDocument();
 ```
-
-在 `README.md` 相关段落增加对首页现状的检视点，先写一个最小快照断言或字符串包含断言（如果当前 README 测试为空，则在本任务中不加自动化测试，只保留手动校验步骤）。
 
 - [ ] **Step 2: Run test to verify it fails**
 
 Run: `npm test -- --run src/app/page.test.tsx`
 
-Expected: FAIL，或部分断言失败，因为当前文案、提示和 README 未必已完全同步到新的主规格措辞。
+Expected: FAIL，因为当前 `home-config` 还没有围绕 `drilldown` 组织模板，图片占位态也未必在新三态下正确承接。
 
 - [ ] **Step 3: Write minimal implementation**
 
-用最小改动统一首页内容：
+在 `home-config.ts` 中把卡片配置升级到可驱动 `drilldown`：
 
-- 调整 `homeEntryCards` 的 `description`、`helper`、`exampleQuestion`，让它们只承诺真实已支持的能力
-- 检查 `recommendedTeammates` 与 `quickLinks`，去掉会误导成已接通功能的文案
-- 在 `README.md` 明确说明首页是门户工作台，图片生成仍为占位，调试页单独保留
+```ts
+export type HomeEntryTemplate = {
+  label: string;
+  prompt: string;
+};
 
-建议准则：
+export type HomeEntryCard = {
+  title: string;
+  description: string;
+  helper: string;
+  exampleQuestion: string;
+  entryMode: EntryMode;
+  placeholder: string;
+  quickTags: QuickTag[];
+  templates?: HomeEntryTemplate[];
+  isPlaceholder?: boolean;
+};
+```
 
-- 不承诺真实图片结果
-- 不把“同事们”写成已经可切换的多 Agent 平台
-- 不使用明显 demo/营销化但无落地能力支撑的措辞
+要求：
+
+- 模板数量控制在 `2 - 4`
+- 文案只承诺当前真实能力
+- 图片生成继续明确为占位态
+- README 更新为“三态工作台 + 抽屉式历史”描述
 
 - [ ] **Step 4: Run test to verify it passes**
 
@@ -305,44 +411,42 @@ Expected: PASS
 - [ ] **Step 5: Commit**
 
 ```bash
-git add src/app/home-config.ts src/app/page.tsx src/app/page.test.tsx README.md
-git commit -m "docs: align homepage content with supported capabilities"
+git add src/app/home-config.ts src/app/_components/home-canvas.tsx src/app/_components/drilldown-canvas.tsx src/app/page.test.tsx README.md
+git commit -m "docs: align homepage drilldown templates with supported flows"
 ```
 
 ---
 
-### Task 4: 补齐移动端、可访问性与 debug 可观测性回归
+### Task 5: 补齐移动端、可访问性与 `/debug` 回归
 
 **Files:**
 - Modify: `src/app/globals.css`
-- Modify: `src/app/page.tsx`
 - Modify: `src/app/page.test.tsx`
-- Modify: `src/app/api/dingtalk/webhook/route.ts`
-- Modify: `src/app/api/dingtalk/webhook/route.test.ts`
 - Modify: `src/app/debug/page.tsx`
 - Modify: `src/app/debug/page.test.tsx`
+- Modify: `src/app/api/dingtalk/webhook/route.ts`
+- Modify: `src/app/api/dingtalk/webhook/route.test.ts`
 - Modify: `docs/superpowers/specs/2026-03-31-homepage-immersive-v1.1.md`
 
 - [ ] **Step 1: Write the failing tests**
 
-补 3 组最小回归断言：
+先加 3 组最小回归断言：
 
-1. 首页可访问性：
+1. 抽屉和发送按钮的可访问性：
 
 ```ts
+expect(screen.getByRole("button", { name: /历史记录/i })).toBeInTheDocument();
 expect(screen.getByRole("button", { name: "发送" })).toBeDisabled();
 ```
 
-配合发送中场景，确认禁用态仍可被语义查询到。
-
-2. debug 信息：
+2. `/debug` 可观测性：
 
 ```ts
 expect(screen.getByText("resolution.kind")).toBeInTheDocument();
 expect(screen.getByText("usedResponseGenerator")).toBeInTheDocument();
 ```
 
-3. webhook debug 返回：
+3. webhook debug 契约：
 
 ```ts
 expect(payload.debug).toEqual(
@@ -356,23 +460,22 @@ expect(payload.debug).toEqual(
 
 - [ ] **Step 2: Run test to verify it fails**
 
-Run: `npm test -- --run src/app/page.test.tsx src/app/api/dingtalk/webhook/route.test.ts src/app/debug/page.test.tsx`
+Run: `npm test -- --run src/app/page.test.tsx src/app/debug/page.test.tsx src/app/api/dingtalk/webhook/route.test.ts`
 
-Expected: FAIL，或至少有回归缺口暴露出来，因为当前首页与 debug 页对增强后的状态和字段没有完整兜底。
+Expected: FAIL，或至少暴露出三态壳层、历史抽屉和 debug 返回之间的回归缺口。
 
 - [ ] **Step 3: Write minimal implementation**
 
 最小实现内容：
 
-- 在 `globals.css` 为首页卡片、模式面板、消息区补窄屏断点和明显焦点态
-- 在首页保证发送按钮、模式退出按钮、示例问题按钮都有清晰可聚焦语义
-- 在 webhook debug 分支保持稳定字段结构
-- 在 debug 页把关键字段展示完整，便于后续排查首页路由行为
-- 更新主 spec 的“当前已完成”部分，把本轮已落地项前移
+- 在 `globals.css` 补抽屉过渡、窄屏断点、焦点态和底部固定输入区样式
+- 在首页保证抽屉按钮、模板按钮、发送按钮有清晰语义
+- `/debug` 继续展示 intent / resolution / usedResponseGenerator，不因首页重构丢失观察能力
+- 更新主 spec 的“当前已完成”部分，把已经落地的三态工作台内容前移
 
-- [ ] **Step 4: Run test to verify it passes**
+- [ ] **Step 4: Run focused tests to verify they pass**
 
-Run: `npm test -- --run src/app/page.test.tsx src/app/api/dingtalk/webhook/route.test.ts src/app/debug/page.test.tsx`
+Run: `npm test -- --run src/app/page.test.tsx src/app/debug/page.test.tsx src/app/api/dingtalk/webhook/route.test.ts`
 
 Expected: PASS
 
@@ -385,33 +488,35 @@ Expected: PASS
 - [ ] **Step 6: Commit**
 
 ```bash
-git add src/app/globals.css src/app/page.tsx src/app/page.test.tsx src/app/api/dingtalk/webhook/route.ts src/app/api/dingtalk/webhook/route.test.ts src/app/debug/page.tsx src/app/debug/page.test.tsx docs/superpowers/specs/2026-03-31-homepage-immersive-v1.1.md
-git commit -m "feat: harden homepage accessibility and debug observability"
+git add src/app/globals.css src/app/page.test.tsx src/app/debug/page.tsx src/app/debug/page.test.tsx src/app/api/dingtalk/webhook/route.ts src/app/api/dingtalk/webhook/route.test.ts docs/superpowers/specs/2026-03-31-homepage-immersive-v1.1.md
+git commit -m "feat: harden homepage workbench accessibility and debug coverage"
 ```
 
 ---
 
 ## Manual Verification Checklist
 
-- [ ] 首页默认空态仍展示欢迎区、五张卡、同事们和输入框
-- [ ] 点击任意卡片后模式面板出现，placeholder 变化正确
-- [ ] 点击示例问题或快捷标签后只预填、不自动发送
-- [ ] 发送后显示思考态，完成后正确替换为回复
-- [ ] 刷新页面后最近会话仍能恢复
-- [ ] 图片生成卡仍明确显示“即将上线”，不伪装成真实能力
-- [ ] 窄屏下卡片、模式面板和输入区不发生明显错位
+- [ ] 首页默认进入 `home`，展示欢迎区、五张卡、同事们和底部固定输入区
+- [ ] 点击业务卡后进入 `drilldown`，而不是直接跳进聊天
+- [ ] `drilldown` 中模板点击后默认只预填、不误发
+- [ ] 发送后切到 `chat`，并展示思考态
+- [ ] 左上角按钮可打开 / 关闭历史抽屉
+- [ ] 历史抽屉能展示最近会话摘要和 `开启新话题`
+- [ ] citation、mode 标签、错误态、澄清态、占位态都可在 `chat` 中区分
+- [ ] 移动端下抽屉、主画布和底部输入区没有明显布局冲突
 - [ ] `/debug` 仍能看到本轮的 intent / resolution / usedResponseGenerator
 
 ## Risks / Notes
 
-- 当前 `ConversationLogRepository` 是内存实现，因此“最小连续性增强”优先走前端恢复而不是服务端历史
-- 如果后续要做真正的历史记录模块，应先把日志仓库替换为可持久化实现，再讨论首页历史抽屉
-- 当前首页消息模型仍是字符串内容；在没有充分证据前，不建议这轮就升级成复杂富结构消息 schema
-- `writing` 模式的提升效果依赖 response generator 启用情况，调试和无模型环境下要接受保守退化
+- 当前 `ConversationLogRepository` 仍是内存实现，因此历史抽屉本轮优先使用前端本地会话恢复，而不是后端持久化历史
+- 当前首页消息模型从纯字符串升级到轻量 meta/citation 后，前后端契约要保持渐进增强，避免一次改成复杂 schema
+- `writing` 模式的表现仍依赖 response generator 是否启用，测试和手动验收都要接受保守退化场景
+- 组件拆分应以职责清晰为先，不需要为了“组件化”而过度拆碎小文件
 
 ## Suggested Execution Order
 
-1. Task 1：先把回复层级做实，避免后面所有演示都还是“有模式入口但回复像同一种话”
-2. Task 2：再补会话连续性，让首页工作台真正有“持续助手”的感觉
-3. Task 3：统一配置与 README，消除文案和实际能力错位
-4. Task 4：最后做可访问性、移动端与 debug 回归，把边缘问题收口
+1. Task 1：先把三态工作台壳层搭起来，锁定 `home / drilldown / chat`
+2. Task 2：接着补历史抽屉和会话摘要，让工作台有“持续助手”感
+3. Task 3：再做 `chat` 结果层级，避免界面骨架有了但结果还像旧聊天页
+4. Task 4：对齐模板和内容配置，让 drilldown 真正有价值
+5. Task 5：最后收口移动端、可访问性和 `/debug` 回归
