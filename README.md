@@ -1,259 +1,261 @@
-# 🏢 DingTalk Admin Assistant
+# 🏢 钉钉行政万事通
 
-> 一个独立的新项目，用于建设“钉钉行政万事通”一期 MVP。  
-> 当前项目已收敛为“钉钉机器人后端 + 本地调试页”，不再承载工作台/H5 应用形态。
+> 为公司内部员工提供的钉钉行政助手机器人，支持制度查询、事务入口指引和转人工。  
+> 当前形态：钉钉 Stream 机器人后端 + 本地调试页。
 
 ---
 
 ## 📑 目录
 
-- [📌 项目定位](#-项目定位)
-- [🎯 一期目标](#-一期目标)
-- [🧱 当前项目结构](#-当前项目结构)
-- [🗺️ 当前阶段重点](#️-当前阶段重点)
-- [🚀 本地运行](#-本地运行)
-- [🧠 当前能力](#-当前能力)
-- [🗂️ 内容整理方式](#️-内容整理方式)
-- [🔗 钉钉接入说明](#-钉钉接入说明)
-- [🧭 当前开发入口](#-当前开发入口)
+- [🏢 钉钉行政万事通](#-钉钉行政万事通)
+  - [📑 目录](#-目录)
+  - [📌 项目定位](#-项目定位)
+  - [🧱 项目结构](#-项目结构)
+  - [🔄 核心链路](#-核心链路)
+  - [🚀 本地快速启动](#-本地快速启动)
+    - [第一步：安装依赖](#第一步安装依赖)
+    - [第二步：准备环境变量](#第二步准备环境变量)
+    - [第三步：启动本地服务（两个终端分别执行）](#第三步启动本地服务两个终端分别执行)
+  - [🧠 当前能力](#-当前能力)
+  - [🗂️ 知识内容维护](#️-知识内容维护)
+    - [当前主路径：直接编辑 Markdown 文件](#当前主路径直接编辑-markdown-文件)
+    - [辅助路径：知识卡片 \& 事务目录](#辅助路径知识卡片--事务目录)
+  - [🔗 接入钉钉](#-接入钉钉)
+  - [🧭 开发入口速查](#-开发入口速查)
+  - [🛠️ 技术栈](#️-技术栈)
 
 ---
 
 ## 📌 项目定位
 
-这个项目不是在现有聊天应用上改造，而是一个**从零开始的新项目**。
+这不是在已有聊天应用上改造，而是一个**从零开始**的公司内部机器人项目。
 
-目标是为公司内部员工提供一个在钉钉内可访问的“行政万事通”机器人，支持：
+员工在钉钉里给机器人发一句话，系统自动判断他是在问制度、在要办事、还是只是打个招呼，然后给出对应的回答或入口。
 
-- 员工高频知识问答
-- 事务入口指引
-- 转人工边界控制
-- 后续接入外部 RAG 检索接口
+**一期核心能力：**
 
----
+| 能力         | 说明                                 |
+| ------------ | ------------------------------------ |
+| 制度知识问答 | 查询假勤、福利、合同、绩效等公司制度 |
+| 事务入口指引 | 请假、报销、权限申请等事务的办理入口 |
+| 转人工       | 机器人处理不了时，给出人工联系方式   |
+| 意图识别     | 自动判断员工意图，分流到对应处理链路 |
 
-## 🎯 一期目标
+**一期暂不覆盖：**
 
-一期先完成以下能力：
-
-- 搭建钉钉组织内 AI 助理入口
-- 建立知识卡片与事务目录
-- 建立意图分析与请求路由骨架
-- 预留 RAG Provider 接口
-
-一期暂不优先：
-
-- 全量制度文档导入
-- 重型 RAG 检索链路
-- 后台管理系统完整实现
+- 自建向量库 / 重型 RAG 检索基础设施
+- 后台内容管理系统（CMS）
 - 多部门同时上线
+- 直接发起钉钉 OA 审批流
 
 ---
 
-## 🧱 当前项目结构
+## 🧱 项目结构
 
 ```text
 dingtalk-admin-assistant/
-├── README.md
-└── docs/
-    └── superpowers/
-        ├── plans/
-        └── specs/
+├── .env.example                    # 环境变量模板（先 cp 一份再填）
+├── prisma/
+│   └── schema.prisma               # 数据库 Schema（当前预留）
+├── docs/
+│   ├── dingtalk-stream-setup.md    # 钉钉接入完整手册
+│   ├── knowledge-card-template.md  # 知识卡片 / 事务目录整理模板
+│   └── knowledge/                  # 本地制度文档（Markdown 格式）
+│       ├── 假勤管理办法.md
+│       ├── 员工福利管理制度.md
+│       ├── 绩效考核管理制度.md
+│       └── 非业务合同管理制度.md
+└── src/
+    ├── app/                        # Next.js App Router（调试页 + API）
+    │   └── api/dingtalk/webhook/   # 本地调试用 HTTP 入口
+    ├── config/                     # 环境变量统一解析
+    └── modules/
+        ├── assistant/              # 问答主服务 & runtime 组装
+        ├── contacts/               # 通讯录 / 对接人查询
+        ├── dingtalk/               # Stream 长连接客户端 & 消息处理
+        ├── handoff/                # 转人工逻辑
+        ├── intents/                # 意图分析（规则 + 模型兜底）
+        ├── knowledge/              # 知识检索（本地文档 / FAQ / 外部 RAG）
+        ├── logging/                # 日志
+        ├── router/                 # 意图路由分流
+        └── tasks/                  # 事务目录
 ```
 
 ---
 
-## 🗺️ 当前阶段重点
+## 🔄 核心链路
 
-当前以机器人联调为主，日常只需要关注两条运行入口：
+```text
+员工在钉钉发消息
+  → DingTalk Stream 客户端接收
+  → 意图分析（判断是查制度 / 办事务 / 闲聊 / 信息不足）
+  → 请求路由（按意图分流）
+      ├─ internal_knowledge → 查本地制度文档 / 知识卡片
+      ├─ task              → 返回事务入口说明
+      ├─ open_response     → 模型直接回答（闲聊、通用问题）
+      └─ clarify           → 追问用户补充信息
+  → 组织回复文本
+  → 通过 sessionWebhook 发回钉钉
+```
 
-- `npm run dev`
-  - 启动 Next.js API 路由和最小调试页
-- `npm run stream:dev`
-  - 启动钉钉 Stream Mode 长连接客户端，且监听代码改动自动重启
+**四类主模式说明：**
 
-当前主链路已经从“FAQ-only”演进到：
-
-- 意图分析
-- 请求路由
-- 本地知识卡片
-- 事务目录
-- 本地 webhook / 钉钉 stream 共用同一套 runtime
-
-后续代码阶段建议采用：
-
-- `Node.js`
-- `TypeScript`
-- `Next.js`
-- `App Router + API Routes`
-- `PostgreSQL`
-- `Prisma`
-- `OpenAI Compatible LLM API`
-- `DingTalk AI Assistant / Stream Mode / 直通模式`
+| 模式                 | 触发场景                 | 示例         |
+| -------------------- | ------------------------ | ------------ |
+| `internal_knowledge` | 询问公司制度、规则、政策 | "年假怎么算" |
+| `task`               | 表达办理诉求、申请动作   | "我要请假"   |
+| `open_response`      | 闲聊、打招呼、通用常识   | "你好"       |
+| `clarify`            | 表达不清，需要追问       | "这个怎么弄" |
 
 ---
 
-## 🚀 本地运行
+## 🚀 本地快速启动
 
-### 1. 安装依赖
+### 第一步：安装依赖
 
 ```bash
 npm install
 ```
 
-### 2. 准备环境变量
-
-复制一份环境变量模板：
+### 第二步：准备环境变量
 
 ```bash
 cp .env.example .env.local
 ```
 
-然后至少填写以下内容：
+打开 `.env.local`，**必填**这两项（从钉钉开发者后台「应用凭证」页面获取）：
 
 ```env
-DATABASE_URL=postgresql://localhost:5432/dingtalk_admin_assistant
-DINGTALK_CLIENT_ID=your-dingtalk-client-id
-DINGTALK_CLIENT_SECRET=your-dingtalk-client-secret
-RAG_API_URL=
+DINGTALK_CLIENT_ID=你的钉钉Client ID
+DINGTALK_CLIENT_SECRET=你的钉钉Client Secret
 ```
 
-如果你要启用意图分析的模型兜底，可以再按需补充这些可选项：
+其余配置按需填写，不填也能在本地规则模式下运行：
 
 ```env
+# 可选：意图分析模型（不填则走本地规则模式）
 SILICONFLOW_API_KEY=
-SILICONFLOW_BASE_URL=
-SILICONFLOW_MODEL=
+SILICONFLOW_BASE_URL=https://api.siliconflow.cn/v1
+SILICONFLOW_MODEL=Qwen/Qwen2.5-7B-Instruct
+
+# 可选：外部 RAG 检索接口（留空则只走本地知识文档）
+RAG_API_URL=
+
+# 可选：数据库（当前预留，暂不强依赖）
+DATABASE_URL=postgresql://localhost:5432/dingtalk_admin_assistant
 ```
 
-这些变量只用于意图模型兜底，不是本地规则模式的必填项；不配置时，系统仍会按本地规则模式运行。
+### 第三步：启动本地服务（两个终端分别执行）
 
-### 3. 启动本地服务
+**终端一：启动 Next.js**
 
 ```bash
 npm run dev
 ```
 
-默认会启动 `Next.js` API 路由和一个最小调试页。  
-如果 `3000` 被占用，Next.js 会自动切换到其他端口。
+默认监听 `http://localhost:3000`，端口被占时自动切换，终端日志会提示实际端口。
 
-### 4. 启动钉钉 Stream 客户端
+**终端二：启动钉钉 Stream 长连接**
 
 ```bash
 npm run stream:dev
 ```
 
-这个命令会启动一个独立的长连接进程，用来接钉钉 `Stream Mode` 的消息；源码变更后会自动重启。
+启动后会看到类似 `DingTalk Stream client connected.` 的日志，说明已成功连上钉钉。  
+修改源码后自动重启，无需手动重跑。
 
-### 5. 当前可访问地址
-
-调试页首页：
-
-```text
-http://localhost:3001
-```
-
-本地 API：
-
-```text
-/api/dingtalk/webhook
-```
-
-说明：
-
-- 首页只用于确认服务已启动与查看调试入口
-- `Stream Mode` 连接钉钉时，真正的消息入口不再依赖公网 webhook
+> 如果没有配置环境变量就直接运行，会立即报错（这是正常的保护行为）。
 
 ---
 
 ## 🧠 当前能力
 
-当前默认机器人已经能处理两类员工请求：
+机器人当前可以处理以下内容，联调时优先用这几句话验证：
 
-- 知识问答
-  - 例如：`年假规则是什么`
-- 事务办理
-  - 例如：`我要请假`
+| 说什么           | 预期链路             | 预期结果                   |
+| ---------------- | -------------------- | -------------------------- |
+| `年假规则是什么` | `internal_knowledge` | 返回年假制度说明           |
+| `我要请假`       | `task`               | 返回请假办理入口和注意事项 |
+| `帮我找行政`     | `handoff`            | 返回行政联系方式           |
+| `你好`           | `open_response`      | 返回欢迎语和能力简介       |
 
-内部主链路是：
+当前本地知识已覆盖：
+
+- 假勤管理（工作时间、打卡、年假、婚产假等）
+- 员工福利制度
+- 绩效考核制度
+- 非业务合同管理制度
+
+---
+
+## 🗂️ 知识内容维护
+
+### 当前主路径：直接编辑 Markdown 文件
+
+制度文档存放在 `docs/knowledge/`，系统会直接读取 Markdown 内容作为知识来源。
+
+**想新增或修改制度知识？** 在 `docs/knowledge/` 下新建或编辑对应的 `.md` 文件即可，无需改代码。
+
+### 辅助路径：知识卡片 & 事务目录
+
+除了制度文档，系统还支持两种结构化内容：
+
+- **知识卡片**：用于回答"规则是什么、制度怎么规定"，适合高频标准问答
+- **事务目录**：用于回答"我要办什么、入口在哪里"，适合流程型请求
+
+整理格式参见：[docs/knowledge-card-template.md](docs/knowledge-card-template.md)
+
+**整理流程：**
 
 ```text
-用户消息 -> 意图分析 -> 请求路由 -> 知识卡片 / 事务目录 / 转人工 -> 回复
+钉钉文档 → 人工整理 → Markdown → 研发接入
 ```
 
-当前验证时可以优先用这几句话：
-
-- `年假规则是什么`
-- `我要请假`
-- `帮我找行政`
-- `你好`
+建议第一批先整理：每个部门 5–10 条高频知识 + 2–5 个高频事务入口。
 
 ---
 
-## 🗂️ 内容整理方式
+## 🔗 接入钉钉
 
-当前项目的内容输入方式不是后台 CMS，而是：
+完整的钉钉后台配置步骤见：[docs/dingtalk-stream-setup.md](docs/dingtalk-stream-setup.md)
 
-```text
-钉钉文档 -> 人工整理 -> Markdown 卡片 -> 研发接入
-```
+包含：
 
-分成两类内容：
+- 钉钉后台怎么创建企业内部应用或组织内 AI 助理
+- 如何开启机器人能力并选择 Stream Mode
+- `Client ID / Client Secret` 在哪里找
+- 本地启动顺序和验证方法
+- 常见失败场景排查（连接失败、消息无回复等）
 
-- 知识卡片
-  - 用来回答“规则是什么、制度怎么规定”
-- 事务目录
-  - 用来回答“我要办什么、入口在哪里”
+**最小接入步骤（快速版）：**
 
-模板文档见：
-
-[knowledge-card-template.md](/Users/xiemin/monter/dingtalk-admin-assistant/docs/knowledge-card-template.md)
-
-建议第一批先整理：
-
-- 每个部门 5 到 10 条高频知识
-- 每个部门 2 到 5 个高频事务入口
+1. 钉钉开发者后台创建应用，开启机器人/AI 助理能力，接入方式选 `Stream Mode`
+2. 记录 `Client ID` 和 `Client Secret`
+3. 填进本地 `.env.local`
+4. 运行 `npm run stream:dev`
+5. 在钉钉里给机器人发消息，验证能否收到回复
 
 ---
 
-## 🔗 钉钉接入说明
+## 🧭 开发入口速查
 
-详细配置手册见：
-
-[dingtalk-stream-setup.md](/Users/xiemin/monter/dingtalk-admin-assistant/docs/dingtalk-stream-setup.md)
-
-这份手册包含：
-
-- 钉钉后台怎么创建应用
-- 如何开启 `Stream Mode`
-- `Client ID / Client Secret` 去哪里拿
-- 本地怎么启动
-- 接入后怎么验证
-- 常见失败场景怎么排查
+| 入口         | 命令 / 地址             | 说明                                   |
+| ------------ | ----------------------- | -------------------------------------- |
+| 本地调试页   | `http://localhost:3000` | 确认服务启动，查看调试信息             |
+| 本地调试 API | `/api/dingtalk/webhook` | HTTP 入口，可用工具直接发请求测试      |
+| 钉钉 Stream  | `npm run stream:dev`    | 真正接钉钉消息的长连接入口，支持热重启 |
+| 单元测试     | `npm run test`          | 运行全量单元测试                       |
 
 ---
 
-## 🧭 当前开发入口
+## 🛠️ 技术栈
 
-| 入口 | 作用 |
-| --- | --- |
-| `/` | 最小调试页，确认服务已启动 |
-| `/api/dingtalk/webhook` | 本地调试 API 路由入口 |
-| `npm run stream:dev` | 钉钉 Stream Mode 长连接入口，支持自动重启 |
-
-当前架构是：
-
-- `Next.js` 负责基础 API 和最小调试页
-- `Stream client` 负责真正接钉钉消息
-- `assistant runtime` 负责统一组装依赖
-- `assistant service` 负责问答编排
-- `request router` 负责知识 / 事务 / 转人工分流
-- `knowledge card retriever` 负责本地知识命中
-- `task catalog service` 负责事务入口命中
-
-这样做的好处是：
-
-- 页面壳子不再干扰机器人主链路
-- 不需要把长连接塞进 `route.ts`
-- webhook 与 stream 能共用同一套能力链路
-- 后面接数据库或 RAG 时只改业务层，不推翻接入层
+| 模块     | 技术选型                                          |
+| -------- | ------------------------------------------------- |
+| 运行时   | Node.js + TypeScript                              |
+| Web 框架 | Next.js App Router + API Routes                   |
+| 钉钉接入 | DingTalk Stream Mode SDK                          |
+| 意图分析 | 本地规则 + OpenAI Compatible LLM（可选）          |
+| 知识检索 | 本地 Markdown 文档 / 知识卡片 / 预留外部 RAG 接口 |
+| 数据库   | PostgreSQL + Prisma（预留，当前未强依赖）         |
+| 测试     | Vitest                                            |
