@@ -95,14 +95,14 @@ function buildTaskResolution(
       ? `办理前准备：${task.preparations.join("、")}`
       : undefined;
 
-  // processCode 存在时生成钉钉审批操作指引（文字），否则降级使用 entryUrl 或 fallback 文案。
-  // 注意：AppLink 在机器人消息场景下无法跳转（钉钉平台限制），因此改为纯文字指引。
-  const oaEntry = task.processCode
-    ? `在钉钉工作台搜索「${task.title}」，或点击底部导航「工作」→「审批」找到「${task.title}」模板，按提示填写提交。`
-    : null;
+  // processCode 存在时生成钉钉审批网页链接，用户点击即可直接打开审批表单。
+  const oaLink = tryBuildOaApprovalLink({
+    processCode: task.processCode,
+    corpId: input.corpId,
+  });
 
   const entry =
-    oaEntry ??
+    oaLink ??
     task.entryUrl ??
     `暂未找到可直接跳转的入口，请联系${task.fallbackContact}确认办理方式。`;
 
@@ -115,8 +115,6 @@ function buildTaskResolution(
     actionType: task.actionType,
     availability: task.availability,
     availabilityReason: task.availabilityReason,
-    taskType: task.taskType,
-    processCode: task.processCode,
   };
 }
 

@@ -7,10 +7,10 @@ export const sampleTaskCatalog: TaskCatalogItem[] = [
     description: "用于发起请假审批，适合年假、病假、事假等场景。",
     keywords: ["请假", "休假", "年假", "病假", "事假"],
     preparations: ["确认请假日期", "准备请假类型", "提前和直属主管沟通"],
-    entryUrl: "https://oa.example.com/tasks/leave-application",
-    actionType: "url",
+    processCode: "PROC-6B84AB06-233D-448B-AFD0-3FAB380F16F3",
+    actionType: "api",
     availability: "available",
-    fallbackContact: "HR 同学"
+    fallbackContact: "HR 同学",
   },
   {
     taskType: "expense_application",
@@ -18,10 +18,21 @@ export const sampleTaskCatalog: TaskCatalogItem[] = [
     description: "用于提交差旅、办公和招待等费用报销。",
     keywords: ["报销", "费用", "发票", "差旅"],
     preparations: ["整理发票凭证", "确认报销金额", "准备审批说明"],
-    entryUrl: "https://oa.example.com/tasks/expense-application",
-    actionType: "url",
+    processCode: "PROC-A08AFCB5-4D61-4ECF-8EFD-032D9000D8A9",
+    actionType: "api",
     availability: "available",
-    fallbackContact: "财务同学"
+    fallbackContact: "财务同学",
+  },
+  {
+    taskType: "overtime_application",
+    title: "加班申请",
+    description: "用于发起加班审批，记录加班时间和原因。",
+    keywords: ["加班", "延时", "补班", "调休"],
+    preparations: ["确认加班日期和时段", "说明加班原因", "提前和直属主管沟通"],
+    processCode: "PROC-8FEC1302-7EB5-4CBC-A6B5-B38DC7DD95A1",
+    actionType: "api",
+    availability: "available",
+    fallbackContact: "HR 同学",
   },
   {
     taskType: "meeting_room_booking",
@@ -32,7 +43,7 @@ export const sampleTaskCatalog: TaskCatalogItem[] = [
     entryUrl: "https://oa.example.com/tasks/meeting-room-booking",
     actionType: "url",
     availability: "available",
-    fallbackContact: "行政同学"
+    fallbackContact: "行政同学",
   },
   {
     taskType: "permission_access",
@@ -43,7 +54,7 @@ export const sampleTaskCatalog: TaskCatalogItem[] = [
     entryUrl: "https://oa.example.com/tasks/permission-access",
     actionType: "url",
     availability: "available",
-    fallbackContact: "IT 同学"
+    fallbackContact: "IT 同学",
   },
   {
     taskType: "office_supply_purchase",
@@ -52,7 +63,8 @@ export const sampleTaskCatalog: TaskCatalogItem[] = [
     keywords: ["办公用品", "采购", "文具", "补货"],
     preparations: ["确认采购清单", "说明采购用途"],
     availability: "unavailable",
-    availabilityReason: "办公用品线上采购入口当前暂停开放，请先联系行政同学线下登记。",
-    fallbackContact: "行政同学"
-  }
+    availabilityReason:
+      "办公用品线上采购入口当前暂停开放，请先联系行政同学线下登记。",
+    fallbackContact: "行政同学",
+  },
 ];

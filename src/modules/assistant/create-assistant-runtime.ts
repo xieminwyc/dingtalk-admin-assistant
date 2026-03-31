@@ -10,14 +10,14 @@ import { sampleContactDirectory } from "@/modules/contacts/sample-contact-direct
 import { createIntentAnalyzer } from "@/modules/intents/intent-analyzer";
 import {
   createModelIntentClassifier,
-  type ModelIntentClassifier
+  type ModelIntentClassifier,
 } from "@/modules/intents/model-intent-classifier";
 import { ConversationContextService } from "@/modules/logging/conversation-context.service";
 import { ConversationLogRepository } from "@/modules/logging/conversation-log.repository";
 import {
   ExternalRagRetriever,
   type ExternalRagDocument,
-  type ExternalRagProvider
+  type ExternalRagProvider,
 } from "@/modules/knowledge/external-rag-retriever";
 import { KnowledgeCardRetriever } from "@/modules/knowledge/knowledge-card-retriever";
 import { LocalDocumentRetriever } from "@/modules/knowledge/local-document-retriever";
@@ -32,6 +32,7 @@ type CreateAssistantRuntimeInput = {
   env?: RuntimeEnvInput;
   fetch?: typeof fetch;
   knowledgeDocsDir?: string;
+  corpId?: string;
 };
 
 type AssistantRuntime = {
@@ -50,20 +51,20 @@ type AssistantRuntime = {
 const runtimeEnvSchema = z.object({
   RAG_API_URL: z.preprocess(
     (value) => (value === "" ? undefined : value),
-    z.string().url().optional()
+    z.string().url().optional(),
   ),
   SILICONFLOW_API_KEY: z.preprocess(
     (value) => (value === "" ? undefined : value),
-    z.string().min(1).optional()
+    z.string().min(1).optional(),
   ),
   SILICONFLOW_BASE_URL: z.preprocess(
     (value) => (value === "" ? undefined : value),
-    z.string().url().optional()
+    z.string().url().optional(),
   ),
   SILICONFLOW_MODEL: z.preprocess(
     (value) => (value === "" ? undefined : value),
-    z.string().min(1).optional()
-  )
+    z.string().min(1).optional(),
+  ),
 });
 
 type RuntimeEnv = {
@@ -87,7 +88,7 @@ function buildKnowledgeFallbackQueries(query: string) {
     normalized
       .replace(/(是什么|是啥|什么意思|怎么规定|怎么办|怎么申请)$/u, "")
       .replace(/(规则|制度|政策|规范)(是什么)$/u, "$1")
-      .trim()
+      .trim(),
   );
 
   return [...candidates].filter(Boolean);
@@ -97,11 +98,15 @@ function buildDefaultKnowledgeDocsDir() {
   return resolve(process.cwd(), "docs/knowledge");
 }
 
-function createLocalKnowledgeRetriever(input?: { knowledgeDocsDir?: string }): KnowledgeRetriever {
+function createLocalKnowledgeRetriever(input?: {
+  knowledgeDocsDir?: string;
+}): KnowledgeRetriever {
   const cardRetriever = new KnowledgeCardRetriever(sampleKnowledgeCards);
-  const knowledgeDocsDir = input?.knowledgeDocsDir ?? buildDefaultKnowledgeDocsDir();
-  const documentRetriever =
-    existsSync(knowledgeDocsDir) ? new LocalDocumentRetriever(knowledgeDocsDir) : null;
+  const knowledgeDocsDir =
+    input?.knowledgeDocsDir ?? buildDefaultKnowledgeDocsDir();
+  const documentRetriever = existsSync(knowledgeDocsDir)
+    ? new LocalDocumentRetriever(knowledgeDocsDir)
+    : null;
 
   return {
     async search(query, options) {
@@ -128,22 +133,25 @@ function createLocalKnowledgeRetriever(input?: { knowledgeDocsDir?: string }): K
           return result;
         }
 
-        if (fallbackKeywords.length === 0 && result.relatedKeywords.length > 0) {
+        if (
+          fallbackKeywords.length === 0 &&
+          result.relatedKeywords.length > 0
+        ) {
           fallbackKeywords = result.relatedKeywords;
         }
       }
 
       return {
         hits: [],
-        relatedKeywords: fallbackKeywords
+        relatedKeywords: fallbackKeywords,
       };
-    }
+    },
   };
 }
 
 function isModelClassifierEnabled(env: ReturnType<typeof parseRuntimeEnv>) {
   return Boolean(
-    env.siliconflowApiKey && env.siliconflowBaseUrl && env.siliconflowModel
+    env.siliconflowApiKey && env.siliconflowBaseUrl && env.siliconflowModel,
   );
 }
 
@@ -154,14 +162,14 @@ function parseRuntimeEnv(envInput: RuntimeEnvInput = process.env) {
     RAG_API_URL: envInput.RAG_API_URL,
     SILICONFLOW_API_KEY: envInput.SILICONFLOW_API_KEY,
     SILICONFLOW_BASE_URL: envInput.SILICONFLOW_BASE_URL,
-    SILICONFLOW_MODEL: envInput.SILICONFLOW_MODEL
+    SILICONFLOW_MODEL: envInput.SILICONFLOW_MODEL,
   });
 
   return {
     ragApiUrl: parsed.RAG_API_URL,
     siliconflowApiKey: parsed.SILICONFLOW_API_KEY,
     siliconflowBaseUrl: parsed.SILICONFLOW_BASE_URL,
-    siliconflowModel: parsed.SILICONFLOW_MODEL
+    siliconflowModel: parsed.SILICONFLOW_MODEL,
   } satisfies RuntimeEnv;
 }
 
@@ -193,12 +201,12 @@ function createExternalRagProvider(input: {
       const response = await input.fetchImpl(`${baseUrl}/search`, {
         method: "POST",
         headers: {
-          "Content-Type": "application/json"
+          "Content-Type": "application/json",
         },
         body: JSON.stringify({
           query,
-          department
-        })
+          department,
+        }),
       });
 
       if (!response.ok) {
@@ -206,22 +214,22 @@ function createExternalRagProvider(input: {
       }
 
       return mapExternalRagDocuments(await response.json());
-    }
+    },
   };
 }
 
 export function createAssistantRuntime(
-  input: CreateAssistantRuntimeInput = {}
+  input: CreateAssistantRuntimeInput = {},
 ): AssistantRuntime {
   const env = parseRuntimeEnv(input.env);
   const localRetriever = createLocalKnowledgeRetriever({
-    knowledgeDocsDir: input.knowledgeDocsDir
+    knowledgeDocsDir: input.knowledgeDocsDir,
   });
   const taskCatalog = new TaskCatalogService(sampleTaskCatalog);
   const contactDirectory = new ContactDirectoryService(sampleContactDirectory);
   const conversationLogger = new ConversationLogRepository();
   const conversationContextService = new ConversationContextService(
-    conversationLogger
+    conversationLogger,
   );
 
   const modelClassifier = isModelClassifierEnabled(env)
@@ -229,7 +237,7 @@ export function createAssistantRuntime(
         apiKey: env.siliconflowApiKey!,
         baseUrl: env.siliconflowBaseUrl!,
         model: env.siliconflowModel!,
-        fetch: input.fetch
+        fetch: input.fetch,
       })
     : undefined;
   const responseGenerator = isModelClassifierEnabled(env)
@@ -237,20 +245,20 @@ export function createAssistantRuntime(
         apiKey: env.siliconflowApiKey!,
         baseUrl: env.siliconflowBaseUrl!,
         model: env.siliconflowModel!,
-        fetch: input.fetch
+        fetch: input.fetch,
       })
     : undefined;
 
   const analyzer = createIntentAnalyzer({
-    modelClassifier
+    modelClassifier,
   });
 
   const externalRetriever = env.ragApiUrl
     ? new ExternalRagRetriever(
         createExternalRagProvider({
           ragApiUrl: env.ragApiUrl,
-          fetchImpl: input.fetch ?? fetch
-        })
+          fetchImpl: input.fetch ?? fetch,
+        }),
       )
     : undefined;
 
@@ -272,11 +280,12 @@ export function createAssistantRuntime(
       contactDirectory,
       externalRetriever,
       enableExternalKnowledge: Boolean(externalRetriever),
+      corpId: input.corpId,
       analyzer,
       conversationLogger,
       conversationContextService,
-      responseGenerator
-    })
+      responseGenerator,
+    }),
   };
 }
 

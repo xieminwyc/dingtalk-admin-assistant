@@ -1,7 +1,7 @@
 import type {
   ContactDirectoryItem,
   ContactDirectoryResolveInput,
-  ContactDirectoryResolution
+  ContactDirectoryResolution,
 } from "./contact-directory.types";
 
 function normalizeText(value: string) {
@@ -13,21 +13,24 @@ function isKeywordHit(query: string, keyword: string) {
 }
 
 function mapItemToResolution(
-  item: ContactDirectoryItem
+  item: ContactDirectoryItem,
 ): ContactDirectoryResolution {
   return {
     title: item.title,
     contactName: item.contactName,
+    userId: item.userId,
     team: item.team,
     description: item.description,
-    actionHint: item.actionHint
+    actionHint: item.actionHint,
   };
 }
 
 export class ContactDirectoryService {
   constructor(private readonly directory: ContactDirectoryItem[]) {}
 
-  resolve(input: ContactDirectoryResolveInput): ContactDirectoryResolution | null {
+  resolve(
+    input: ContactDirectoryResolveInput,
+  ): ContactDirectoryResolution | null {
     let bestMatch:
       | {
           item: ContactDirectoryItem;
@@ -43,7 +46,7 @@ export class ContactDirectoryService {
           if (!bestMatch || score > bestMatch.score) {
             bestMatch = {
               item,
-              score
+              score,
             };
           }
         }

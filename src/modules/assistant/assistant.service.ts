@@ -13,7 +13,7 @@ import {
   buildClarificationResolution,
   createRequestRouter,
   type ContactDirectoryResolver,
-  type TaskCatalogResolver
+  type TaskCatalogResolver,
 } from "../router/request-router";
 
 export type AssistantReplyInput = {
@@ -35,7 +35,7 @@ export type AssistantDebugReply = {
 type ConversationContextLoader = {
   loadRecentContext(
     sessionId: string,
-    options: { maxTurns?: number; ttlMs?: number }
+    options: { maxTurns?: number; ttlMs?: number },
   ): Promise<ConversationContextTurn[]>;
 };
 
@@ -43,11 +43,11 @@ const DEFAULT_CONTEXT_TTL_MS = 30 * 60 * 1000;
 const DEFAULT_CONTEXT_TURNS = 6;
 
 function normalizeReplyInput(
-  input: string | AssistantReplyInput
+  input: string | AssistantReplyInput,
 ): AssistantReplyInput {
   if (typeof input === "string") {
     return {
-      query: input
+      query: input,
     };
   }
 
@@ -63,7 +63,7 @@ function buildDefaultIntentAnalysis(): IntentAnalysis {
     toolPlan: "knowledge",
     topicShift: false,
     intent: "knowledge_query",
-    source: "fallback"
+    source: "fallback",
   };
 }
 
@@ -76,7 +76,7 @@ function buildClarificationIntentAnalysis(): IntentAnalysis {
     toolPlan: "none",
     topicShift: false,
     intent: "unknown",
-    source: "fallback"
+    source: "fallback",
   };
 }
 
@@ -87,6 +87,7 @@ export function createAssistantService(input: {
   contactDirectory?: ContactDirectoryResolver;
   externalRetriever?: KnowledgeRetriever;
   enableExternalKnowledge?: boolean;
+  corpId?: string;
   analyzer?: IntentAnalyzer;
   conversationContextService?: ConversationContextLoader;
   conversationLogger?: Pick<ConversationLogRepositoryLike, "append">;
@@ -97,21 +98,25 @@ export function createAssistantService(input: {
     taskCatalog: input.taskCatalog,
     contactDirectory: input.contactDirectory,
     externalRetriever: input.externalRetriever,
-    enableExternalKnowledge: input.enableExternalKnowledge
+    enableExternalKnowledge: input.enableExternalKnowledge,
+    corpId: input.corpId,
   });
 
   async function loadConversationContext(
-    sessionId?: string
+    sessionId?: string,
   ): Promise<ConversationContextTurn[]> {
     if (!sessionId || !input.conversationContextService) {
       return [];
     }
 
     try {
-      return await input.conversationContextService.loadRecentContext(sessionId, {
-        maxTurns: DEFAULT_CONTEXT_TURNS,
-        ttlMs: DEFAULT_CONTEXT_TTL_MS
-      });
+      return await input.conversationContextService.loadRecentContext(
+        sessionId,
+        {
+          maxTurns: DEFAULT_CONTEXT_TURNS,
+          ttlMs: DEFAULT_CONTEXT_TTL_MS,
+        },
+      );
     } catch {
       // 上下文读取失败时不应阻塞当前回复；
       // 这时直接退化成“单轮消息”即可。
@@ -143,7 +148,7 @@ export function createAssistantService(input: {
         content: inputRecord.content,
         role: inputRecord.role,
         routeType: inputRecord.routeType,
-        routeConfidence: inputRecord.routeConfidence
+        routeConfidence: inputRecord.routeConfidence,
       });
     } catch {
       // 日志只承担观测与上下文回放能力，不应该反向影响用户当前会话。
@@ -151,10 +156,12 @@ export function createAssistantService(input: {
   }
 
   async function resolveReply(
-    rawInput: string | AssistantReplyInput
+    rawInput: string | AssistantReplyInput,
   ): Promise<AssistantDebugReply> {
     const replyInput = normalizeReplyInput(rawInput);
-    const conversationContext = await loadConversationContext(replyInput.sessionId);
+    const conversationContext = await loadConversationContext(
+      replyInput.sessionId,
+    );
     let intent: IntentAnalysis | null = null;
 
     if (input.analyzer) {
@@ -162,7 +169,7 @@ export function createAssistantService(input: {
         intent = await input.analyzer.analyze({
           query: replyInput.query,
           conversationContext,
-          entryMode: replyInput.entryMode
+          entryMode: replyInput.entryMode,
         });
       } catch {
         // analyzer 失效时不继续猜测路由，直接返回保守澄清，
@@ -174,7 +181,7 @@ export function createAssistantService(input: {
           conversationContext,
           intent: buildClarificationIntentAnalysis(),
           resolution: fallbackResolution,
-          usedResponseGenerator: false
+          usedResponseGenerator: false,
         };
       }
     }
@@ -189,14 +196,14 @@ export function createAssistantService(input: {
       intent: resolvedIntent,
       // taskHint 是决策器给事务 provider 的结构化提示，
       // 现在先直接透传给旧 router，帮助事务命中更稳定。
-      taskType: resolvedIntent.taskHint
+      taskType: resolvedIntent.taskHint,
     });
     const generatedReply = input.responseGenerator
       ? await input.responseGenerator.generate({
           query: replyInput.query,
           entryMode: replyInput.entryMode,
           conversationContext,
-          resolution
+          resolution,
         })
       : null;
     const reply = generatedReply ?? buildAssistantReply(resolution);
@@ -209,7 +216,7 @@ export function createAssistantService(input: {
       content: replyInput.query,
       role: "user",
       routeType: resolvedIntent.intent,
-      routeConfidence: resolvedIntent.intentConfidence
+      routeConfidence: resolvedIntent.intentConfidence,
     });
     await appendConversationLog({
       sessionId: replyInput.sessionId,
@@ -219,7 +226,7 @@ export function createAssistantService(input: {
       content: reply,
       role: "assistant",
       routeType: resolution.intent,
-      routeConfidence: resolvedIntent.intentConfidence
+      routeConfidence: resolvedIntent.intentConfidence,
     });
 
     return {
@@ -227,7 +234,7 @@ export function createAssistantService(input: {
       conversationContext,
       intent: resolvedIntent,
       resolution,
-      usedResponseGenerator: Boolean(generatedReply)
+      usedResponseGenerator: Boolean(generatedReply),
     };
   }
 
@@ -239,6 +246,6 @@ export function createAssistantService(input: {
     },
     async replyWithDebug(rawInput: string | AssistantReplyInput) {
       return resolveReply(rawInput);
-    }
+    },
   };
 }

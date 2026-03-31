@@ -1,5 +1,6 @@
 generator client {
   provider = "prisma-client"
+  output   = "../src/generated/prisma"
 }
 
 datasource db {
@@ -68,6 +69,22 @@ model KnowledgeProviderConfig {
   endpointUrl String?
   createdAt   DateTime @default(now())
   updatedAt   DateTime @updatedAt
+}
+
+// 缓存通过 Stream 消息懒加载的钉钉用户基本信息。
+// 只在用户首次对话时写入或更新，不主动拉全量通讯录。
+model DingTalkUser {
+  // userId 直接用钉钉的 senderStaffId，保持与 API 一致，不额外生成主键。
+  userId    String   @id
+  nick      String?
+  name      String?
+  mobile    String?
+  avatar    String?
+  email     String?
+  // 部门 id 列表，存成 JSON 字符串，业务侧按需解析。
+  deptIds   String?
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
 }
 
 // 会话日志保存的是路由边界信息，不是完整对话全文；

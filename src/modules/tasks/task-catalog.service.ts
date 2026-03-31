@@ -1,7 +1,7 @@
 import type {
   TaskCatalogItem,
   TaskCatalogResolveInput,
-  TaskCatalogResolution
+  TaskCatalogResolution,
 } from "./task-catalog.types";
 
 const DEFAULT_FALLBACK_CONTACT = "行政同学";
@@ -26,15 +26,13 @@ function buildFallbackResolution(): TaskCatalogResolution {
     actionType: undefined,
     availability: "unknown",
     availabilityReason: "当前未命中可用的事务配置。",
-    fallbackContact: DEFAULT_FALLBACK_CONTACT
+    fallbackContact: DEFAULT_FALLBACK_CONTACT,
   };
 }
 
 // 目录项属于静态种子数据；这里复制出一份 resolution，
 // 避免后续调用方修改返回值时反向污染目录原始数据。
-function mapItemToResolution(
-  item: TaskCatalogItem
-): TaskCatalogResolution {
+function mapItemToResolution(item: TaskCatalogItem): TaskCatalogResolution {
   return {
     taskType: item.taskType,
     title: item.title,
@@ -46,7 +44,8 @@ function mapItemToResolution(
     actionType: item.actionType ?? (item.entryUrl ? "url" : undefined),
     availability: item.availability ?? "available",
     availabilityReason: item.availabilityReason,
-    fallbackContact: item.fallbackContact
+    fallbackContact: item.fallbackContact,
+    processCode: item.processCode,
   };
 }
 
@@ -63,7 +62,7 @@ export class TaskCatalogService {
     const normalizedTaskType = normalizeText(taskType);
 
     return this.catalog.find(
-      (item) => normalizeText(item.taskType) === normalizedTaskType
+      (item) => normalizeText(item.taskType) === normalizedTaskType,
     );
   }
 
@@ -93,7 +92,7 @@ export class TaskCatalogService {
             bestMatch = {
               item,
               keyword,
-              score
+              score,
             };
           }
         }

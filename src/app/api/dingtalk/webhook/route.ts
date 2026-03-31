@@ -9,7 +9,9 @@ let assistantRuntime: ReturnType<typeof createAssistantRuntime> | null = null;
 
 function getAssistantRuntime() {
   if (!assistantRuntime) {
-    assistantRuntime = createAssistantRuntime();
+    assistantRuntime = createAssistantRuntime({
+      corpId: process.env.DINGTALK_CORP_ID,
+    });
   }
 
   return assistantRuntime;
@@ -32,11 +34,11 @@ export async function POST(request: Request) {
   if (!message) {
     return Response.json(
       {
-        error: "message is required"
+        error: "message is required",
       },
       {
-        status: 400
-      }
+        status: 400,
+      },
     );
   }
 
@@ -46,13 +48,12 @@ export async function POST(request: Request) {
     // webhook 调试入口默认允许显式透传 sessionId；
     // 没给时就落到一个固定调试会话，方便本地连续调试上下文。
     sessionId: body.sessionId ?? "webhook-debug-session",
-    entryMode: body.entryMode
+    entryMode: body.entryMode,
   };
 
   if (body.debug) {
-    const debugResult = await getAssistantRuntime().assistant.replyWithDebug(
-      assistantInput
-    );
+    const debugResult =
+      await getAssistantRuntime().assistant.replyWithDebug(assistantInput);
 
     return Response.json({
       reply: debugResult.reply,
@@ -60,14 +61,14 @@ export async function POST(request: Request) {
         conversationContext: debugResult.conversationContext,
         intent: debugResult.intent,
         resolution: debugResult.resolution,
-        usedResponseGenerator: debugResult.usedResponseGenerator
-      }
+        usedResponseGenerator: debugResult.usedResponseGenerator,
+      },
     });
   }
 
   const reply = await getAssistantRuntime().assistant.reply(assistantInput);
 
   return Response.json({
-    reply
+    reply,
   });
 }
