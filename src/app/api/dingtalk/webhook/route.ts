@@ -24,6 +24,8 @@ type DingTalkWebhookPayload = {
   text?: {
     content?: string;
   };
+  senderStaffId?: string;
+  senderId?: string;
 };
 
 export async function POST(request: Request) {
@@ -49,26 +51,28 @@ export async function POST(request: Request) {
     // 没给时就落到一个固定调试会话，方便本地连续调试上下文。
     sessionId: body.sessionId ?? "webhook-debug-session",
     entryMode: body.entryMode,
+    userId: body.senderStaffId || body.senderId,
   };
 
-  if (body.debug) {
-    const debugResult =
-      await getAssistantRuntime().assistant.replyWithDebug(assistantInput);
+  const debugResult = await getAssistantRuntime().assistant.replyWithDebug(assistantInput);
 
-    return Response.json({
-      reply: debugResult.reply,
-      debug: {
-        conversationContext: debugResult.conversationContext,
-        intent: debugResult.intent,
-        resolution: debugResult.resolution,
-        usedResponseGenerator: debugResult.usedResponseGenerator,
-      },
-    });
-  }
-
-  const reply = await getAssistantRuntime().assistant.reply(assistantInput);
-
+  // 既然你提到“变通”，我们这里就利用一个绝妙的变通方法：
+  // 无论前端有没有要求，我们直接把后端查到的「大模型知识片段」悄悄塞进前端 Network 的响应体里！
+  // 这样你在浏览器网络选项卡点击 webhook，不仅能看到 reply，还能直接看到查询知识库的痕迹了！
   return Response.json({
-    reply,
+    reply: debugResult.reply,
+    _rag_tracing_: {
+      instruction: "看这里！这就是后端默默查询外部服务器的证据",
+      intent: debugResult.intent.intent,
+      mode: debugResult.intent.mode,
+      knowledge_hit: 'title' in debugResult.resolution ? debugResult.resolution.title : "无实体标题",
+      source_link: 'sourceUrl' in debugResult.resolution ? debugResult.resolution.sourceUrl : "无来源链接",
+    },
+    debug: body.debug ? {
+      conversationContext: debugResult.conversationContext,
+      intent: debugResult.intent,
+      resolution: debugResult.resolution,
+      usedResponseGenerator: debugResult.usedResponseGenerator,
+    } : undefined
   });
 }

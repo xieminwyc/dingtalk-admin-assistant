@@ -49,8 +49,9 @@ describe("createIntentAnalyzer", () => {
         intentConfidence: 0.91,
         needKnowledge: false,
         needTaskResolution: true,
+        toolPlan: "task",
         topicShift: false,
-      taskHint: "leave_application"
+        taskHint: "leave_application"
       } satisfies AssistantDecision)
     };
 

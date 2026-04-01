@@ -551,7 +551,7 @@ describe("createAssistantService", () => {
   });
 
   it("loads session context for the analyzer and persists both user and assistant messages", async () => {
-    const append = vi.fn(async () => undefined);
+    const append = vi.fn(async (input: any) => ({} as any));
     const loadRecentContext = vi.fn(async () => [
       { role: "user" as const, content: "你能做什么？" },
       { role: "assistant" as const, content: "我可以帮你查制度、找办理入口。" }

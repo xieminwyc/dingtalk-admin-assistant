@@ -282,8 +282,29 @@ describe("POST /api/dingtalk/webhook", () => {
   it("passes entryMode to the assistant runtime input", async () => {
     vi.resetModules();
 
-    const reply = vi.fn().mockResolvedValue("已为你打开 OA 入口。");
-    const replyWithDebug = vi.fn();
+    const reply = vi.fn();
+    const replyWithDebug = vi.fn().mockResolvedValue({
+      reply: "已为你打开 OA 入口。",
+      conversationContext: [],
+      intent: {
+        mode: "task",
+        intentConfidence: 0.9,
+        needKnowledge: false,
+        needTaskResolution: true,
+        toolPlan: "task",
+        topicShift: false,
+        intent: "task_request",
+        source: "model",
+      },
+      resolution: {
+        kind: "task",
+        intent: "task_request",
+        title: "OA 入口",
+        entry: "https://oa.example.com",
+        guidance: "请按入口提示继续办理",
+      },
+      usedResponseGenerator: false,
+    });
 
     vi.doMock("@/modules/assistant/create-assistant-runtime", () => ({
       createAssistantRuntime: () => ({
@@ -316,7 +337,8 @@ describe("POST /api/dingtalk/webhook", () => {
 
     expect(response.status).toBe(200);
     expect(data.reply).toBe("已为你打开 OA 入口。");
-    expect(reply).toHaveBeenCalledWith({
+    expect(reply).not.toHaveBeenCalled();
+    expect(replyWithDebug).toHaveBeenCalledWith({
       query: "帮我打开 OA",
       sessionId: "home-1",
       entryMode: "task"

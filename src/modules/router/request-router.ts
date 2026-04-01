@@ -16,7 +16,7 @@ import { tryBuildOaApprovalLink } from "../oa/oa-link";
 
 export const DEFAULT_CLARIFICATION_PROMPT =
   "我可以帮你查制度说明，或告诉你办理入口。请再具体描述一下问题。";
-const EXTERNAL_RELIABLE_SCORE = 0.6;
+const RELIABLE_KNOWLEDGE_SCORE = 0.6;
 
 // router 只依赖“能把任务请求解析成目录结果”的最小能力，
 // 这样后面无论任务来源是本地种子、数据库还是外部服务，都能直接替换。
@@ -34,6 +34,8 @@ export type RequestRouteInput = {
   entryMode?: EntryMode;
   // 给后续任务来源保留轻量扩展位：如果上游已经拿到结构化 taskType，就直接透传。
   taskType?: string;
+  userId?: string;
+  sessionId?: string;
 };
 
 // 澄清回复在路由层统一生成，assistant service 只复用这里的结果，
@@ -63,6 +65,7 @@ function buildKnowledgeResolution(hit: KnowledgeHit): AssistantResolution {
     scope: hit.scope,
     referenceLabel: hit.referenceLabel,
     sourceUrl: hit.url,
+    source: hit.source,
   };
 }
 
@@ -118,29 +121,59 @@ function buildTaskResolution(
   };
 }
 
-// 知识检索采用“外部优先，本地兜底”的一期策略：
-// 只有显式启用外部 provider 时才尝试外部结果，且必须达到可靠分数，
-// 否则一律回退到本地知识卡片，保证机器人先稳定可用。
+function hasReliableKnowledgeHit(result: KnowledgeSearchResult): boolean {
+  return (result.hits[0]?.score ?? 0) >= RELIABLE_KNOWLEDGE_SCORE;
+}
+
+function searchRetriever(
+  retriever: KnowledgeRetriever,
+  input: {
+    query: string;
+    userId?: string;
+    sessionId?: string;
+  },
+): Promise<KnowledgeSearchResult> {
+  if (!input.userId && !input.sessionId) {
+    return retriever.search(input.query);
+  }
+
+  return retriever.search(input.query, {
+    userId: input.userId,
+    sessionId: input.sessionId,
+  });
+}
+
+// 启用外部知识库时，优先使用外部 RAG。
+// 但外部超时、空结果或低置信度都应该回退到本地知识，避免把“服务异常”伪装成“没内容”。
 async function searchKnowledge(input: {
   query: string;
   localRetriever: KnowledgeRetriever;
   externalRetriever?: KnowledgeRetriever;
   enableExternalKnowledge?: boolean;
+  userId?: string;
+  sessionId?: string;
 }): Promise<KnowledgeSearchResult> {
   if (input.enableExternalKnowledge && input.externalRetriever) {
     try {
-      const externalResult = await input.externalRetriever.search(input.query);
-      const topExternalHit = externalResult.hits[0];
+      const externalResult = await searchRetriever(input.externalRetriever, {
+        query: input.query,
+        userId: input.userId,
+        sessionId: input.sessionId,
+      });
 
-      if (topExternalHit && topExternalHit.score >= EXTERNAL_RELIABLE_SCORE) {
+      if (hasReliableKnowledgeHit(externalResult)) {
         return externalResult;
       }
-    } catch {
-      // provider 出错时直接回退本地卡片，保证一期能力稳定。
+    } catch (error) {
+      console.error("[searchKnowledge] external RAG error:", error);
     }
   }
 
-  return input.localRetriever.search(input.query);
+  return searchRetriever(input.localRetriever, {
+    query: input.query,
+    userId: input.userId,
+    sessionId: input.sessionId,
+  });
 }
 
 export function createRequestRouter(input: {
@@ -180,6 +213,8 @@ export function createRequestRouter(input: {
             localRetriever: input.localRetriever,
             externalRetriever: input.externalRetriever,
             enableExternalKnowledge: input.enableExternalKnowledge,
+            userId: request.userId,
+            sessionId: request.sessionId,
           });
           const hits = knowledgeResult.hits;
           const handoff = evaluateHandoff({
@@ -187,13 +222,18 @@ export function createRequestRouter(input: {
             topScore: hits[0]?.score ?? 0,
           });
 
-          if (handoff.required || !hits[0]) {
-            // 这里显式区分“完全没候选”和“有候选但不够可靠”，
-            // 方便回复层决定是优先给相近建议，还是提醒用户当前答案不够稳。
-            const reasonCode = !hits[0] ? "no_candidate" : "low_confidence";
+          if (!hits[0]) {
             return buildClarificationResolution({
               reason: handoff.reason,
-              reasonCode,
+              reasonCode: "no_candidate",
+              relatedKeywords: knowledgeResult.relatedKeywords,
+            });
+          }
+
+          if (handoff.required) {
+            return buildClarificationResolution({
+              reason: handoff.reason,
+              reasonCode: "low_confidence",
               relatedKeywords: knowledgeResult.relatedKeywords,
             });
           }

@@ -18,6 +18,7 @@ export type AssistantKnowledgeResolution = {
   scope?: string;
   referenceLabel?: string;
   sourceUrl?: string;
+  source?: string;
 };
 
 export type AssistantTaskResolution = {

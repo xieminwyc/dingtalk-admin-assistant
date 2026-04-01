@@ -6,10 +6,13 @@ type StreamTextPayload = {
 
 type StreamMessagePayload = StreamTextPayload & {
   sessionWebhook?: string;
+  conversationId?: string;
+  senderStaffId?: string;
+  senderId?: string;
 };
 
 type AssistantPort = {
-  reply(input: string | { query: string; sessionId?: string }): Promise<string>;
+  reply(input: string | { query: string; sessionId?: string; userId?: string }): Promise<string>;
 };
 
 type StreamReplyPort = {
@@ -59,10 +62,11 @@ export function createDingTalkStreamHandler(input: {
       };
     }
 
-    // sessionWebhook 是每次会话级别的回复入口，直接拿它把 assistant 回复送回钉钉。
+    // sessionWebhook 是只用于一次性回复的钉钉接口，而 conversationId 才是真实的会话上下文 ID
     const reply = await input.assistant.reply({
       query: message,
-      sessionId: payload.sessionWebhook
+      sessionId: payload.conversationId || payload.sessionWebhook,
+      userId: payload.senderStaffId || payload.senderId,
     });
     await input.replier.replyMarkdown(payload.sessionWebhook, reply);
 

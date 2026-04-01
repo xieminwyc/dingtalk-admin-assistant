@@ -12,12 +12,15 @@ export type ExternalRagDocument = {
   department?: string;
   score?: number;
   url?: string;
+  headingPath?: string;
 };
 
 export interface ExternalRagProvider {
   search(input: {
     query: string;
     department?: string;
+    userId?: string;
+    sessionId?: string;
   }): Promise<ExternalRagDocument[]>;
 }
 
@@ -30,7 +33,9 @@ export class ExternalRagRetriever implements KnowledgeRetriever {
   ): Promise<KnowledgeSearchResult> {
     const documents = await this.provider.search({
       query,
-      department: options?.department
+      department: options?.department,
+      userId: options?.userId,
+      sessionId: options?.sessionId,
     });
 
     return {
@@ -50,9 +55,8 @@ export class ExternalRagRetriever implements KnowledgeRetriever {
           score: document.score ?? 0.8,
           source: "rag" as const,
           url: document.url,
-          // 外部 RAG 一期先直接用标题当引用标签，后续如果 provider 提供更细的 citation，
-          // 可以在不改上层调用方的前提下继续扩展。
-          referenceLabel: document.title
+          // 如果存在标题则说明确实有真实引用，进行拼接，否则彻底不生成溯源字段
+          referenceLabel: document.title ? (document.headingPath ? `${document.title} - ${document.headingPath}` : document.title) : undefined
         };
       }),
       relatedKeywords: []

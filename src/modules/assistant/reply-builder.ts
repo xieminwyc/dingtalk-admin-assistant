@@ -13,7 +13,17 @@ function formatKnowledgeReply(input: {
   answer: string;
   scope?: string;
   referenceLabel?: string;
+  source?: string;
 }) {
+  // 如果是外部大模型直接生成的完整问答，不用强行套入内部条款的三段式卡片，直接原样回复即可
+  if (input.source === "rag") {
+    const lines = [input.answer];
+    if (input.referenceLabel) {
+      lines.push("", `[依据]: ${input.referenceLabel}`);
+    }
+    return lines.join("\n");
+  }
+
   const lines = [
     "知识主题",
     input.title ?? "制度答复",

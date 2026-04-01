@@ -236,15 +236,24 @@ export function createAssistantService(input: {
       // taskHint 是决策器给事务 provider 的结构化提示，
       // 现在先直接透传给旧 router，帮助事务命中更稳定。
       taskType: resolvedIntent.taskHint,
+      userId: replyInput.userId,
+      sessionId: replyInput.sessionId,
     });
-    const generatedReply = input.responseGenerator
-      ? await input.responseGenerator.generate({
-          query: replyInput.query,
-          entryMode: replyInput.entryMode,
-          conversationContext,
-          resolution,
-        })
-      : null;
+    // Если我们已经在使用外部大模型直接出 answer (source === 'rag')，
+    // 我们就不再走一遍内部大模型润色，避免重复花时间和费用，以及冲掉外脑原意。
+    const shouldSkipGeneration =
+      resolution.kind === "knowledge" && resolution.source === "rag";
+
+    const generatedReply =
+      input.responseGenerator && !shouldSkipGeneration
+        ? await input.responseGenerator.generate({
+            query: replyInput.query,
+            entryMode: replyInput.entryMode,
+            conversationContext,
+            resolution,
+          })
+        : null;
+
     const reply = generatedReply ?? buildAssistantReply(resolution);
 
     await appendConversationLog({

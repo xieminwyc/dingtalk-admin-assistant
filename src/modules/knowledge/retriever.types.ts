@@ -26,6 +26,8 @@ export type KnowledgeSearchResult = {
 
 export type KnowledgeSearchOptions = {
   department?: KnowledgeDepartment;
+  userId?: string;
+  sessionId?: string;
 };
 
 export interface KnowledgeRetriever {

@@ -12,6 +12,7 @@ import {
   createModelIntentClassifier,
   type ModelIntentClassifier,
 } from "@/modules/intents/model-intent-classifier";
+import { KnowledgeApiClient } from "@/modules/knowledge/knowledge-api-client";
 import { ConversationContextService } from "@/modules/logging/conversation-context.service";
 import { ConversationLogRepository } from "@/modules/logging/conversation-log.repository";
 import {
@@ -53,6 +54,18 @@ const runtimeEnvSchema = z.object({
     (value) => (value === "" ? undefined : value),
     z.string().url().optional(),
   ),
+  RAG_API_KEY: z.preprocess(
+    (value) => (value === "" ? undefined : value),
+    z.string().min(1).optional(),
+  ),
+  RAG_API_TIMEOUT: z.preprocess(
+    (value) => value ? parseInt(value, 10) : undefined,
+    z.number().min(1000).max(120000).optional(),
+  ),
+  RAG_API_RETRY_COUNT: z.preprocess(
+    (value) => value ? parseInt(value, 10) : undefined,
+    z.number().min(0).max(5).optional(),
+  ),
   SILICONFLOW_API_KEY: z.preprocess(
     (value) => (value === "" ? undefined : value),
     z.string().min(1).optional(),
@@ -69,6 +82,9 @@ const runtimeEnvSchema = z.object({
 
 type RuntimeEnv = {
   ragApiUrl?: string;
+  ragApiKey?: string;
+  ragApiTimeout?: number;
+  ragApiRetryCount?: number;
   siliconflowApiKey?: string;
   siliconflowBaseUrl?: string;
   siliconflowModel?: string;
@@ -160,6 +176,9 @@ function parseRuntimeEnv(envInput: RuntimeEnvInput = process.env) {
   // 避免被全局 env schema 的其他必填项意外牵连。
   const parsed = runtimeEnvSchema.parse({
     RAG_API_URL: envInput.RAG_API_URL,
+    RAG_API_KEY: envInput.RAG_API_KEY,
+    RAG_API_TIMEOUT: envInput.RAG_API_TIMEOUT,
+    RAG_API_RETRY_COUNT: envInput.RAG_API_RETRY_COUNT,
     SILICONFLOW_API_KEY: envInput.SILICONFLOW_API_KEY,
     SILICONFLOW_BASE_URL: envInput.SILICONFLOW_BASE_URL,
     SILICONFLOW_MODEL: envInput.SILICONFLOW_MODEL,
@@ -167,6 +186,9 @@ function parseRuntimeEnv(envInput: RuntimeEnvInput = process.env) {
 
   return {
     ragApiUrl: parsed.RAG_API_URL,
+    ragApiKey: parsed.RAG_API_KEY,
+    ragApiTimeout: parsed.RAG_API_TIMEOUT,
+    ragApiRetryCount: parsed.RAG_API_RETRY_COUNT,
     siliconflowApiKey: parsed.SILICONFLOW_API_KEY,
     siliconflowBaseUrl: parsed.SILICONFLOW_BASE_URL,
     siliconflowModel: parsed.SILICONFLOW_MODEL,
@@ -174,6 +196,24 @@ function parseRuntimeEnv(envInput: RuntimeEnvInput = process.env) {
 }
 
 function mapExternalRagDocuments(payload: unknown): ExternalRagDocument[] {
+  if (
+    payload &&
+    typeof payload === "object" &&
+    "items" in payload &&
+    Array.isArray(payload.items)
+  ) {
+    return payload.items.map((item: any) => ({
+      id: String(item.chunkId || item.id),
+      title: item.title,
+      content: item.chunkText || item.content,
+      score: item.score,
+      url: item.sourceUrl || item.url,
+      headingPath: item.headingPath,
+    }));
+  }
+
+  // Fallback map format if standard format failed
+  // For backwards compatibility or different provider
   if (Array.isArray(payload)) {
     return payload as ExternalRagDocument[];
   }
@@ -190,30 +230,70 @@ function mapExternalRagDocuments(payload: unknown): ExternalRagDocument[] {
   return [];
 }
 
-function createExternalRagProvider(input: {
+// 在内容内存里持有一份钉钉会话 ID -> 知识库真实 Session ID 的映射
+const ragSessionMap = new Map<string, string>();
+
+export function createExternalRagProvider(input: {
   ragApiUrl: string;
+  ragApiKey?: string;
   fetchImpl: typeof fetch;
+  timeout?: number;
+  retryCount?: number;
 }): ExternalRagProvider {
-  const baseUrl = input.ragApiUrl.replace(/\/$/, "");
+  const apiClient = new KnowledgeApiClient({
+    baseUrl: input.ragApiUrl,
+    apiKey: input.ragApiKey,
+    fetchImpl: input.fetchImpl,
+    timeout: input.timeout ?? 30000, // 默认30秒
+    retryCount: input.retryCount ?? 1, // 默认重试1次
+  });
 
   return {
-    async search({ query, department }) {
-      const response = await input.fetchImpl(`${baseUrl}/search`, {
-        method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-        },
-        body: JSON.stringify({
-          query,
-          department,
-        }),
-      });
+    async search({ query, department, userId, sessionId }) {
+      try {
+        // 如果我们本地记录了该钉钉会话对应的知识库 session，就传给它以维持上下文
+        const ragSessionId = ragSessionMap.get(sessionId || "") || undefined;
 
-      if (!response.ok) {
-        return [];
+        // 使用 /ask 接口，完全让外部 RAG 服务执行检索加答案生成
+        const response = await apiClient.ask({
+          question: query,
+          operatorId: userId || "unknown",
+          // 首次提问不传，后续从 map 里取出来传
+          sessionId: ragSessionId,
+          maxChunks: 5,
+        });
+
+        // 记下服务端为其创建的 session 关系，供后续追问使用
+        if (response.sessionId && sessionId) {
+          ragSessionMap.set(sessionId, response.sessionId);
+        }
+
+        // 既然我们已经全面转用自带答复能力的 /ask 接口，直接提取最终 answer 
+        if (!response.answer) {
+          return [];
+        }
+
+        const mainCitation = response.sources?.[0];
+        return [
+          {
+            id: response.sessionId || sessionId || String(Date.now()),
+            title: mainCitation?.documentTitle || "",
+            content: response.answer,
+            score: 1.0, 
+            url: mainCitation?.sourceUrl,
+            headingPath: mainCitation?.headingPath,
+          },
+        ];
+      } catch (error: any) {
+        console.error("[ExternalRagProvider] search error:", error);
+        // 对于超时错误，返回空数组而不是抛出错误，让系统降级到本地知识库
+        if (error.message.includes('超时') || error.message.includes('timeout')) {
+          console.warn(`[ExternalRagProvider] 搜索超时，降级到本地知识库: ${query}`);
+          return [];
+        }
+        // 其他错误仍然抛出
+        throw error;
       }
-
-      return mapExternalRagDocuments(await response.json());
     },
   };
 }
@@ -257,7 +337,10 @@ export function createAssistantRuntime(
     ? new ExternalRagRetriever(
         createExternalRagProvider({
           ragApiUrl: env.ragApiUrl,
+          ragApiKey: env.ragApiKey,
           fetchImpl: input.fetch ?? fetch,
+          timeout: env.ragApiTimeout ?? 30000, // 默认30秒超时
+          retryCount: env.ragApiRetryCount ?? 2, // 默认重试2次
         }),
       )
     : undefined;

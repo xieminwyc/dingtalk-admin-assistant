@@ -16,6 +16,10 @@ const appEnvSchema = z.object({
     (value) => (value === "" ? undefined : value),
     z.string().url().optional(),
   ),
+  RAG_API_KEY: z.preprocess(
+    (value) => (value === "" ? undefined : value),
+    z.string().min(1, "RAG_API_KEY is required").optional(),
+  ),
   SILICONFLOW_API_KEY: z.preprocess(
     (value) => (value === "" ? undefined : value),
     z.string().min(1, "SILICONFLOW_API_KEY is required").optional(),
@@ -36,6 +40,7 @@ export type AppEnv = {
   dingtalkClientSecret: string;
   dingtalkCorpId?: string;
   ragApiUrl?: string;
+  ragApiKey?: string;
   siliconflowApiKey?: string;
   siliconflowBaseUrl?: string;
   siliconflowModel?: string;
@@ -53,6 +58,7 @@ export function parseAppEnv(
     dingtalkClientSecret: parsed.DINGTALK_CLIENT_SECRET,
     dingtalkCorpId: parsed.DINGTALK_CORP_ID,
     ragApiUrl: parsed.RAG_API_URL,
+    ragApiKey: parsed.RAG_API_KEY,
     siliconflowApiKey: parsed.SILICONFLOW_API_KEY,
     siliconflowBaseUrl: parsed.SILICONFLOW_BASE_URL,
     siliconflowModel: parsed.SILICONFLOW_MODEL,
