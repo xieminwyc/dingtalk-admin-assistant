@@ -104,6 +104,8 @@ function extractDecisionFromContent(content: string): AssistantDecision {
       (parsed.mode === "clarify" ? DEFAULT_CLARIFY_QUESTION : undefined);
     const knowledgeHint = pickOptionalText(parsed.knowledgeHint);
     const taskHint = pickOptionalText(parsed.taskHint);
+    const reply =
+      parsed.mode === "open_response" ? pickOptionalText(parsed.reply) : undefined;
 
     return {
       mode: parsed.mode,
@@ -126,6 +128,7 @@ function extractDecisionFromContent(content: string): AssistantDecision {
       ...(clarifyQuestion ? { clarifyQuestion } : {}),
       ...(knowledgeHint ? { knowledgeHint } : {}),
       ...(taskHint ? { taskHint } : {}),
+      ...(reply ? { reply } : {}),
     };
   } catch {
     // 大模型偶发返回非 JSON 时，统一降级到 clarify，
@@ -171,6 +174,8 @@ function buildDecisionSystemPrompt() {
     "needKnowledge、needTaskResolution 和 toolPlan 用于告诉系统是否要调用工具。",
     "只有公司内部知识和公司事务才允许调用工具。",
     "如果是闲聊、天气、旅游、美食、生活常识、百科问答、攻略建议，应该判断为 open_response，并设置 toolPlan 为 none。",
+    "如果 mode 是 open_response，必须返回 reply 字段，内容是本轮可以直接发给用户的最终中文回复。",
+    "如果 mode 不是 open_response，不要返回 reply 字段。",
     "禁止查阅公司内部知识库来回答通用知识或闲聊问题。",
     "询问公司规则、制度、说明、标准、口径、区别、适用范围，优先判断为 internal_knowledge。",
     "短的制度名词短语也优先判断为 internal_knowledge，例如：迟到扣款、病假工资、年假天数、餐补标准、加班调休、考勤制度。",
@@ -186,8 +191,10 @@ function buildDecisionSystemPrompt() {
     '用户：“迟到扣款制度说明” -> {"mode":"internal_knowledge","intentConfidence":0.92,"needKnowledge":true,"needTaskResolution":false,"toolPlan":"knowledge","topicShift":false,"knowledgeHint":"迟到扣款制度"}',
     '用户：“病假工资” -> {"mode":"internal_knowledge","intentConfidence":0.9,"needKnowledge":true,"needTaskResolution":false,"toolPlan":"knowledge","topicShift":false,"knowledgeHint":"病假工资制度"}',
     '用户：“我要请假” -> {"mode":"task","intentConfidence":0.95,"needKnowledge":false,"needTaskResolution":true,"toolPlan":"task","topicShift":false,"taskHint":"leave_application"}',
-    '用户：“你是谁” -> {"mode":"open_response","intentConfidence":0.95,"needKnowledge":false,"needTaskResolution":false,"toolPlan":"none","topicShift":false}',
-    '用户：“北京七日游攻略” -> {"mode":"open_response","intentConfidence":0.94,"needKnowledge":false,"needTaskResolution":false,"toolPlan":"none","topicShift":false}',
+    '用户：“你好” -> {"mode":"open_response","intentConfidence":0.98,"needKnowledge":false,"needTaskResolution":false,"toolPlan":"none","topicShift":false,"reply":"你好，我是你的员工助手。你可以问我制度规则、办理入口，或者直接告诉我你想办什么。"}',
+    '用户：“你是谁” -> {"mode":"open_response","intentConfidence":0.95,"needKnowledge":false,"needTaskResolution":false,"toolPlan":"none","topicShift":false,"reply":"你好，我是你的员工助手，主要可以帮你查公司制度、找办理入口，也可以先帮你判断问题该查知识还是走流程。"}',
+    '用户：“你能做什么” -> {"mode":"open_response","intentConfidence":0.97,"needKnowledge":false,"needTaskResolution":false,"toolPlan":"none","topicShift":false,"reply":"我可以帮你查公司制度说明、找常用办理入口，也可以先帮你判断问题该查知识还是走流程。"}',
+    '用户：“北京七日游攻略” -> {"mode":"open_response","intentConfidence":0.94,"needKnowledge":false,"needTaskResolution":false,"toolPlan":"none","topicShift":false,"reply":"如果你想轻松一点，我建议按故宫、中轴线、长城、颐和园、胡同这样安排。"}',
     '用户：“这个怎么办” -> {"mode":"clarify","intentConfidence":0.3,"needKnowledge":false,"needTaskResolution":false,"toolPlan":"none","topicShift":false,"clarifyQuestion":"你是想查制度说明，还是想办理流程？"}',
   ].join("\n");
 }

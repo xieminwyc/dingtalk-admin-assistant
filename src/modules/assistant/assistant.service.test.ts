@@ -104,7 +104,141 @@ describe("createAssistantService", () => {
     expect(reply).toContain("请联系");
   });
 
-  it("obeys analyzer output contract for open_response without hitting retriever", async () => {
+  it("returns open_response directly when analyzer already provides reply", async () => {
+    vi.resetModules();
+    const routeSpy = vi.fn(async () => {
+      throw new Error("router should not be called for direct open_response");
+    });
+
+    vi.doMock("../router/request-router", async () => {
+      const actual = await vi.importActual<typeof import("../router/request-router")>(
+        "../router/request-router"
+      );
+
+      return {
+        ...actual,
+        createRequestRouter: vi.fn(() => ({
+          route: routeSpy
+        }))
+      };
+    });
+
+    try {
+      const { createAssistantService: createIsolatedAssistantService } = await import(
+        "./assistant.service"
+      );
+      const generate = vi.fn().mockResolvedValue("不应该被调用");
+      const assistant = createIsolatedAssistantService({
+        localRetriever: {
+          async search() {
+            throw new Error("retriever should not be called for direct open_response");
+          }
+        },
+        analyzer: {
+          async analyze() {
+            return buildIntentAnalysis("open_response", {
+              reply: "你好，我是你的员工助手。"
+            });
+          }
+        },
+        taskCatalog: createTaskCatalog(),
+        responseGenerator: {
+          generate
+        }
+      });
+
+      const result = await assistant.replyWithDebug({
+        query: "你好",
+        sessionId: "session-open-response"
+      });
+
+      expect(result.reply).toBe("你好，我是你的员工助手。");
+      expect(result.resolution).toEqual({
+        kind: "open_response",
+        intent: "smalltalk",
+        reply: "你好，我是你的员工助手。"
+      });
+      expect(result.usedResponseGenerator).toBe(false);
+      expect(generate).not.toHaveBeenCalled();
+      expect(routeSpy).not.toHaveBeenCalled();
+    }
+    finally {
+      vi.doUnmock("../router/request-router");
+      vi.resetModules();
+    }
+  });
+
+  it("keeps loaded context and logs for the direct open_response fast path", async () => {
+    const append = vi.fn(async () => undefined);
+    const generate = vi.fn().mockResolvedValue("不应该被调用");
+    const loadRecentContext = vi.fn(async () => [
+      { role: "user" as const, content: "你能做什么？" }
+    ]);
+
+    const assistant = createAssistantService({
+      localRetriever: {
+        async search() {
+          throw new Error("retriever should not be called for direct open_response");
+        }
+      },
+      analyzer: {
+        async analyze(input) {
+          expect(input).toEqual({
+            query: "你好",
+            conversationContext: [{ role: "user", content: "你能做什么？" }],
+            entryMode: undefined
+          });
+
+          return buildIntentAnalysis("open_response", {
+            reply: "你好，我是你的员工助手。"
+          });
+        }
+      },
+      taskCatalog: createTaskCatalog(),
+      responseGenerator: {
+        generate
+      },
+      conversationContextService: {
+        loadRecentContext
+      },
+      conversationLogger: {
+        append
+      }
+    });
+
+    const result = await assistant.replyWithDebug({
+      query: "你好",
+      sessionId: "session-direct-open-response"
+    });
+
+    expect(loadRecentContext).toHaveBeenCalledWith("session-direct-open-response", {
+      maxTurns: 6,
+      ttlMs: 1800000
+    });
+    expect(result.reply).toBe("你好，我是你的员工助手。");
+    expect(result.conversationContext).toEqual([
+      { role: "user", content: "你能做什么？" }
+    ]);
+    expect(result.usedResponseGenerator).toBe(false);
+    expect(generate).not.toHaveBeenCalled();
+    expect(append).toHaveBeenCalledTimes(2);
+    expect(append.mock.calls[0]?.[0]).toMatchObject({
+      sessionId: "session-direct-open-response",
+      conversationId: "session-direct-open-response",
+      role: "user",
+      content: "你好",
+      routeType: "smalltalk"
+    });
+    expect(append.mock.calls[1]?.[0]).toMatchObject({
+      sessionId: "session-direct-open-response",
+      conversationId: "session-direct-open-response",
+      role: "assistant",
+      content: "你好，我是你的员工助手。",
+      routeType: "smalltalk"
+    });
+  });
+
+  it("falls back to the old open_response path when reply is missing", async () => {
     const localRetriever: KnowledgeRetriever = {
       async search() {
         throw new Error("retriever should not be called for open_response");
@@ -115,18 +249,27 @@ describe("createAssistantService", () => {
         return buildIntentAnalysis("open_response");
       }
     };
+    const generate = vi
+      .fn()
+      .mockResolvedValue("北京七日游可以先逛中轴线，再安排一天长城。");
 
     const assistant = createAssistantService({
       localRetriever,
       analyzer,
       taskCatalog: createTaskCatalog(),
       responseGenerator: {
-        generate: vi.fn().mockResolvedValue("北京七日游可以先逛中轴线，再安排一天长城。")
+        generate
       }
     });
-    const reply = await assistant.reply("北京七日游攻略");
+    const result = await assistant.replyWithDebug({
+      query: "北京七日游攻略",
+      sessionId: "session-open-response-fallback"
+    });
 
-    expect(reply).toContain("中轴线");
+    expect(result.reply).toContain("中轴线");
+    expect(result.resolution.kind).toBe("open_response");
+    expect(result.usedResponseGenerator).toBe(true);
+    expect(generate).toHaveBeenCalledTimes(1);
   });
 
   it("passes entryMode to the analyzer input", async () => {

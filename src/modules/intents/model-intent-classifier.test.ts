@@ -172,6 +172,166 @@ describe("createModelIntentClassifier", () => {
     );
   });
 
+  it("preserves reply for open_response decisions", async () => {
+    const fetchMock = vi.fn().mockResolvedValue({
+      ok: true,
+      json: async () => ({
+        choices: [
+          {
+            message: {
+              content: JSON.stringify({
+                mode: "open_response",
+                intentConfidence: 0.98,
+                needKnowledge: false,
+                needTaskResolution: false,
+                toolPlan: "none",
+                topicShift: false,
+                reply: "你好，我是你的员工助手。"
+              })
+            }
+          }
+        ]
+      })
+    });
+
+    const classifier = createModelIntentClassifier({
+      apiKey: "test-key",
+      baseUrl: "https://api.siliconflow.cn/v1",
+      model: "Qwen/Qwen3-8B",
+      fetch: fetchMock
+    });
+
+    await expect(classifier.classify({ query: "你好" })).resolves.toEqual({
+      mode: "open_response",
+      intentConfidence: 0.98,
+      needKnowledge: false,
+      needTaskResolution: false,
+      toolPlan: "none",
+      topicShift: false,
+      reply: "你好，我是你的员工助手。"
+    });
+  });
+
+  it("preserves reply for general open_response questions", async () => {
+    const fetchMock = vi.fn().mockResolvedValue({
+      ok: true,
+      json: async () => ({
+        choices: [
+          {
+            message: {
+              content: JSON.stringify({
+                mode: "open_response",
+                intentConfidence: 0.94,
+                needKnowledge: false,
+                needTaskResolution: false,
+                toolPlan: "none",
+                topicShift: false,
+                reply: "如果你想轻松一点，我建议按故宫、中轴线、长城、颐和园、胡同这样安排。"
+              })
+            }
+          }
+        ]
+      })
+    });
+
+    const classifier = createModelIntentClassifier({
+      apiKey: "test-key",
+      baseUrl: "https://api.siliconflow.cn/v1",
+      model: "Qwen/Qwen3-8B",
+      fetch: fetchMock
+    });
+
+    await expect(classifier.classify({ query: "北京七日游攻略" })).resolves.toEqual({
+      mode: "open_response",
+      intentConfidence: 0.94,
+      needKnowledge: false,
+      needTaskResolution: false,
+      toolPlan: "none",
+      topicShift: false,
+      reply: "如果你想轻松一点，我建议按故宫、中轴线、长城、颐和园、胡同这样安排。"
+    });
+  });
+
+  it("drops reply for non-open_response decisions", async () => {
+    const fetchMock = vi.fn().mockResolvedValue({
+      ok: true,
+      json: async () => ({
+        choices: [
+          {
+            message: {
+              content: JSON.stringify({
+                mode: "task",
+                intentConfidence: 0.95,
+                needKnowledge: false,
+                needTaskResolution: true,
+                toolPlan: "task",
+                topicShift: false,
+                taskHint: "leave_application",
+                reply: "这个字段不应该被保留"
+              })
+            }
+          }
+        ]
+      })
+    });
+
+    const classifier = createModelIntentClassifier({
+      apiKey: "test-key",
+      baseUrl: "https://api.siliconflow.cn/v1",
+      model: "Qwen/Qwen3-8B",
+      fetch: fetchMock
+    });
+
+    await expect(classifier.classify({ query: "我要请假" })).resolves.toEqual({
+      mode: "task",
+      intentConfidence: 0.95,
+      needKnowledge: false,
+      needTaskResolution: true,
+      toolPlan: "task",
+      topicShift: false,
+      taskHint: "leave_application"
+    });
+  });
+
+  it("treats blank reply as missing", async () => {
+    const fetchMock = vi.fn().mockResolvedValue({
+      ok: true,
+      json: async () => ({
+        choices: [
+          {
+            message: {
+              content: JSON.stringify({
+                mode: "open_response",
+                intentConfidence: 0.96,
+                needKnowledge: false,
+                needTaskResolution: false,
+                toolPlan: "none",
+                topicShift: false,
+                reply: "   "
+              })
+            }
+          }
+        ]
+      })
+    });
+
+    const classifier = createModelIntentClassifier({
+      apiKey: "test-key",
+      baseUrl: "https://api.siliconflow.cn/v1",
+      model: "Qwen/Qwen3-8B",
+      fetch: fetchMock
+    });
+
+    await expect(classifier.classify({ query: "你好" })).resolves.toEqual({
+      mode: "open_response",
+      intentConfidence: 0.96,
+      needKnowledge: false,
+      needTaskResolution: false,
+      toolPlan: "none",
+      topicShift: false
+    });
+  });
+
   it("teaches the model to answer general knowledge directly without hitting company knowledge", async () => {
     const fetchMock = vi.fn().mockResolvedValue({
       ok: true,
@@ -185,7 +345,8 @@ describe("createModelIntentClassifier", () => {
                 needKnowledge: false,
                 needTaskResolution: false,
                 toolPlan: "none",
-                topicShift: false
+                topicShift: false,
+                reply: "如果你想轻松一点，我建议按故宫、中轴线、长城、颐和园、胡同这样安排。"
               })
             }
           }
@@ -211,7 +372,52 @@ describe("createModelIntentClassifier", () => {
     expect(requestBody.messages[0]?.content).toContain("open_response");
     expect(requestBody.messages[0]?.content).toContain("北京七日游攻略");
     expect(requestBody.messages[0]?.content).toContain("禁止查阅公司内部知识库");
+    expect(requestBody.messages[0]?.content).toContain("如果 mode 是 open_response，必须返回 reply 字段");
+    expect(requestBody.messages[0]?.content).toContain('用户：“你好”');
+    expect(requestBody.messages[0]?.content).toContain('用户：“北京七日游攻略”');
   });
+
+  it("teaches the model to emit reply for open_response", async () => {
+    const fetchMock = vi.fn().mockResolvedValue({
+      ok: true,
+      json: async () => ({
+        choices: [
+          {
+            message: {
+              content: JSON.stringify({
+                mode: "open_response",
+                intentConfidence: 0.97,
+                needKnowledge: false,
+                needTaskResolution: false,
+                toolPlan: "none",
+                topicShift: false,
+                reply: "我可以帮你查公司制度说明、找常用办理入口。"
+              })
+            }
+          }
+        ]
+      })
+    });
+
+    const classifier = createModelIntentClassifier({
+      apiKey: "test-key",
+      baseUrl: "https://api.siliconflow.cn/v1",
+      model: "Qwen/Qwen3-8B",
+      fetch: fetchMock
+    });
+
+    await classifier.classify({
+      query: "你能做什么"
+    });
+
+    const requestBody = JSON.parse(String(fetchMock.mock.calls[0]?.[1]?.body)) as {
+      messages: Array<{ role: string; content: string }>;
+    };
+
+    expect(requestBody.messages[0]?.content).toContain("如果 mode 是 open_response，必须返回 reply 字段");
+    expect(requestBody.messages[0]?.content).toContain("如果 mode 不是 open_response，不要返回 reply 字段");
+  });
+
 
   it("returns a clarify fallback when the model payload is not a supported decision", async () => {
     const fetchMock = vi.fn().mockResolvedValue({

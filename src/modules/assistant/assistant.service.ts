@@ -190,6 +190,45 @@ export function createAssistantService(input: {
     // 它只负责串起“分析意图 -> 路由 -> 拼回复”的主流程。
     // 未接分析器时，默认按知识问答路径走，兼容现有单一路径调用方。
     const resolvedIntent = intent ?? buildDefaultIntentAnalysis();
+
+    if (resolvedIntent.mode === "open_response" && resolvedIntent.reply?.trim()) {
+      const resolution: AssistantResolution = {
+        kind: "open_response",
+        intent: "smalltalk",
+        reply: resolvedIntent.reply,
+      };
+      const reply = resolvedIntent.reply;
+
+      await appendConversationLog({
+        sessionId: replyInput.sessionId,
+        conversationId: replyInput.conversationId,
+        userId: replyInput.userId,
+        query: replyInput.query,
+        content: replyInput.query,
+        role: "user",
+        routeType: resolvedIntent.intent,
+        routeConfidence: resolvedIntent.intentConfidence,
+      });
+      await appendConversationLog({
+        sessionId: replyInput.sessionId,
+        conversationId: replyInput.conversationId,
+        userId: replyInput.userId,
+        query: replyInput.query,
+        content: reply,
+        role: "assistant",
+        routeType: resolution.intent,
+        routeConfidence: resolvedIntent.intentConfidence,
+      });
+
+      return {
+        reply,
+        conversationContext,
+        intent: resolvedIntent,
+        resolution,
+        usedResponseGenerator: false,
+      };
+    }
+
     const resolution = await router.route({
       query: replyInput.query,
       entryMode: replyInput.entryMode,

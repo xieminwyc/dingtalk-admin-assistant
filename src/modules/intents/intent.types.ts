@@ -26,4 +26,5 @@ export type AssistantDecision = {
   clarifyQuestion?: string;
   knowledgeHint?: string;
   taskHint?: string;
+  reply?: string;
 };

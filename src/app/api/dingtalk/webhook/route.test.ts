@@ -1,8 +1,24 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
-import { POST } from "./route";
+async function importFreshRoute() {
+  vi.resetModules();
+  const routeModule = await import("./route");
+  return routeModule.POST;
+}
 
 function buildDecisionPayload(query: string) {
+  if (query.includes("你好")) {
+    return {
+      mode: "open_response",
+      intentConfidence: 0.98,
+      needKnowledge: false,
+      needTaskResolution: false,
+      toolPlan: "none",
+      topicShift: false,
+      reply: "你好，我是你的员工助手。你可以问我制度规则、办理入口，或者直接告诉我你想办什么。"
+    };
+  }
+
   if (query.includes("请假")) {
     return {
       mode: "task",
@@ -77,6 +93,7 @@ describe("POST /api/dingtalk/webhook", () => {
     delete process.env.SILICONFLOW_BASE_URL;
     delete process.env.SILICONFLOW_MODEL;
     vi.restoreAllMocks();
+    vi.resetModules();
   });
 
   it("returns a task entry reply for a transactional request", async () => {
@@ -92,7 +109,8 @@ describe("POST /api/dingtalk/webhook", () => {
       })
     });
 
-    const response = await POST(request);
+    const post = await importFreshRoute();
+    const response = await post(request);
     const data = (await response.json()) as {
       reply?: string;
     };
@@ -115,7 +133,8 @@ describe("POST /api/dingtalk/webhook", () => {
       })
     });
 
-    const response = await POST(request);
+    const post = await importFreshRoute();
+    const response = await post(request);
     const data = (await response.json()) as {
       reply?: string;
     };
@@ -140,7 +159,8 @@ describe("POST /api/dingtalk/webhook", () => {
       })
     });
 
-    const response = await POST(request);
+    const post = await importFreshRoute();
+    const response = await post(request);
     const data = (await response.json()) as {
       reply?: string;
       debug?: {
@@ -172,6 +192,74 @@ describe("POST /api/dingtalk/webhook", () => {
     );
   });
 
+  it("returns a direct open_response debug payload without a second model call", async () => {
+    vi.resetModules();
+    vi.restoreAllMocks();
+
+    process.env.SILICONFLOW_API_KEY = "test-key";
+    process.env.SILICONFLOW_BASE_URL = "https://api.siliconflow.cn/v1";
+    process.env.SILICONFLOW_MODEL = "Qwen/Qwen3-8B";
+
+    const fetchMock = vi.spyOn(globalThis, "fetch").mockImplementation(async (_input, init) => {
+      const requestBody = JSON.parse(String(init?.body ?? "{}")) as {
+        messages?: Array<{ content?: string }>;
+      };
+      const query =
+        requestBody.messages?.[1]?.content?.split("当前用户消息：")[1]?.trim() ?? "";
+      const systemPrompt = requestBody.messages?.[0]?.content ?? "";
+
+      if (String(systemPrompt).includes("回复生成器")) {
+        throw new Error("response generator should not be called for direct open_response");
+      }
+
+      return Response.json({
+        choices: [
+          {
+            message: {
+              content: JSON.stringify(buildDecisionPayload(query))
+            }
+          }
+        ]
+      });
+    });
+
+    const { POST: freshPost } = await import("./route");
+    const request = new Request("http://localhost/api/dingtalk/webhook", {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json"
+      },
+      body: JSON.stringify({
+        debug: true,
+        sessionId: "page-debug-open-response",
+        text: {
+          content: "你好"
+        }
+      })
+    });
+
+    const response = await freshPost(request);
+    const data = (await response.json()) as {
+      reply?: string;
+      debug?: {
+        intent?: {
+          mode?: string;
+        };
+        resolution?: {
+          kind?: string;
+        };
+        usedResponseGenerator?: boolean;
+      };
+    };
+
+    expect(response.status).toBe(200);
+    expect(data.reply).toContain("你好，我是你的员工助手");
+    expect(data.debug?.intent?.mode).toBe("open_response");
+    expect(data.debug?.resolution?.kind).toBe("open_response");
+    expect(data.debug?.usedResponseGenerator).toBe(false);
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+  });
+
   it("rejects an empty user message", async () => {
     const request = new Request("http://localhost/api/dingtalk/webhook", {
       method: "POST",
@@ -185,7 +273,8 @@ describe("POST /api/dingtalk/webhook", () => {
       })
     });
 
-    const response = await POST(request);
+    const post = await importFreshRoute();
+    const response = await post(request);
 
     expect(response.status).toBe(400);
   });
