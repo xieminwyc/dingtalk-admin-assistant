@@ -2,30 +2,30 @@ import type { ContactDirectoryItem } from "./contact-directory.types";
 
 export const sampleContactDirectory: ContactDirectoryItem[] = [
   {
-    id: "contact-pms-card",
-    title: "PMS 制卡问题",
-    keywords: ["PMS", "制卡", "门卡", "房卡"],
-    contactName: "门店系统支持同学",
-    team: "门店系统支持",
-    description: "负责 PMS 制卡、门卡权限和房卡相关问题处理。",
-    actionHint: "可以先整理门店名称、房号和报错信息再联系。"
+    id: "contact-finance-expense",
+    title: "财务报销与发票问题",
+    keywords: ["报销", "费用", "发票", "借款", "付款"],
+    contactName: "财务同学",
+    team: "财务",
+    description: "负责报销退回、发票要求、付款进度等财务问题。",
+    actionHint: "联系前建议准备单号、报销金额和退回原因。",
   },
   {
-    id: "contact-hr",
-    title: "人力资源咨询",
-    keywords: ["人力资源", "HR", "入职", "离职", "假勤", "社保"],
-    contactName: "HR 同学",
-    team: "HR",
-    description: "负责入转调离、假勤制度和员工福利等问题。",
-    actionHint: "联系前建议先准备员工姓名、工号和具体问题。"
+    id: "contact-admin-service",
+    title: "行政服务支持",
+    keywords: ["行政", "会议室", "办公用品", "访客", "工位"],
+    contactName: "行政同学",
+    team: "行政服务",
+    description: "负责会议室预订、办公用品申领、访客接待等行政支持事项。",
+    actionHint: "联系前建议准备申请时间、地点和具体诉求。",
   },
   {
     id: "contact-oa",
-    title: "OA 与流程系统问题",
-    keywords: ["OA", "流程", "表单", "慧管家", "系统"],
+    title: "OA 与流程系统支持",
+    keywords: ["OA", "流程", "审批", "慧管家", "系统"],
     contactName: "流程系统支持同学",
     team: "信息化支持",
     description: "负责 OA、慧管家和流程系统入口相关问题。",
-    actionHint: "优先提供系统名称、截图和报错时间。"
-  }
+    actionHint: "优先提供系统名称、截图和报错时间。",
+  },
 ];

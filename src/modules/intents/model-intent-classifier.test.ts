@@ -470,7 +470,7 @@ describe("createModelIntentClassifier", () => {
       needTaskResolution: false,
       toolPlan: "none",
       topicShift: false,
-      clarifyQuestion: "我先确认一下，你是想查制度说明，还是想办理流程？"
+      clarifyQuestion: "当前系统开小差了，请稍后再试。"
     });
     expect(infoSpy).toHaveBeenCalledWith(
       '[siliconflow] request model="Qwen/Qwen3-8B" query="这个怎么办"'
@@ -500,7 +500,30 @@ describe("createModelIntentClassifier", () => {
       needTaskResolution: false,
       toolPlan: "none",
       topicShift: false,
-      clarifyQuestion: "我先确认一下，你是想查制度说明，还是想办理流程？"
+      clarifyQuestion: "当前系统开小差了，请稍后再试。"
+    });
+  });
+
+  it("returns a clarify fallback with the error copy when the model response is not ok", async () => {
+    const classifier = createModelIntentClassifier({
+      apiKey: "test-key",
+      baseUrl: "https://api.siliconflow.cn/v1",
+      model: "Qwen/Qwen3-8B",
+      fetch: vi.fn().mockResolvedValue({
+        ok: false,
+        status: 503,
+        statusText: "Service Unavailable"
+      })
+    });
+
+    await expect(classifier.classify("这个怎么办")).resolves.toEqual({
+      mode: "clarify",
+      intentConfidence: 0,
+      needKnowledge: false,
+      needTaskResolution: false,
+      toolPlan: "none",
+      topicShift: false,
+      clarifyQuestion: "当前系统开小差了，请稍后再试。"
     });
   });
 });

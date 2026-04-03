@@ -31,6 +31,7 @@ const SUPPORTED_MODES: AssistantMode[] = [
 ];
 const DEFAULT_CLARIFY_QUESTION =
   "我先确认一下，你是想查制度说明，还是想办理流程？";
+const DEFAULT_MODEL_ERROR_QUESTION = "当前系统开小差了，请稍后再试。";
 
 function isAssistantMode(value: unknown): value is AssistantMode {
   return SUPPORTED_MODES.includes(value as AssistantMode);
@@ -65,7 +66,9 @@ function fallbackToolUsageByMode(mode: AssistantMode): {
   };
 }
 
-function buildFallbackDecision(): AssistantDecision {
+function buildFallbackDecision(input?: {
+  clarifyQuestion?: string;
+}): AssistantDecision {
   return {
     mode: "clarify",
     intentConfidence: 0,
@@ -73,8 +76,14 @@ function buildFallbackDecision(): AssistantDecision {
     needTaskResolution: false,
     toolPlan: "none",
     topicShift: false,
-    clarifyQuestion: DEFAULT_CLARIFY_QUESTION,
+    clarifyQuestion: input?.clarifyQuestion ?? DEFAULT_CLARIFY_QUESTION,
   };
+}
+
+function buildModelErrorDecision(): AssistantDecision {
+  return buildFallbackDecision({
+    clarifyQuestion: DEFAULT_MODEL_ERROR_QUESTION,
+  });
 }
 
 function pickOptionalText(value: unknown) {
@@ -248,7 +257,14 @@ export function createModelIntentClassifier(
         });
 
         if (!response.ok) {
-          return buildFallbackDecision();
+          const reason = `${response.status} ${response.statusText}`.trim();
+          console.warn(
+            formatSiliconFlowLog(
+              `response mode=clarify query="${normalizedInput.query}" reason="${reason}"`,
+            ),
+          );
+
+          return buildModelErrorDecision();
         }
 
         const payload = (await response.json()) as {
@@ -270,20 +286,26 @@ export function createModelIntentClassifier(
         );
 
         return decision;
-      } catch {
-        // 模型调用属于决策层能力；一旦异常，直接回到轻量澄清，
-        // 让用户能继续对话，而不是被网络抖动打断整条链路。
-        const reason = "network down";
+      } catch (error) {
+        // 模型调用属于决策层能力；一旦异常，直接返回友好报错，
+        // 避免把服务异常伪装成“继续追问用户”。
+        const reason =
+          error instanceof Error ? error.message : String(error);
         console.warn(
           formatSiliconFlowLog(
             `response mode=clarify query="${normalizedInput.query}" reason="${reason}"`,
           ),
         );
 
-        return buildFallbackDecision();
+        return buildModelErrorDecision();
       }
     },
   };
 }
 
-export { buildFallbackDecision, DEFAULT_CLARIFY_QUESTION };
+export {
+  buildFallbackDecision,
+  buildModelErrorDecision,
+  DEFAULT_CLARIFY_QUESTION,
+  DEFAULT_MODEL_ERROR_QUESTION,
+};

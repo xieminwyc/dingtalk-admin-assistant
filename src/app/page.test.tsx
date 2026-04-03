@@ -18,14 +18,14 @@ describe("Home", () => {
     expect(screen.getByText("找制度")).toBeInTheDocument();
     expect(screen.getByText("找对接人")).toBeInTheDocument();
     expect(screen.getByText("找流程")).toBeInTheDocument();
-    expect(screen.getByText("图片生成")).toBeInTheDocument();
+    expect(screen.getByText("发票识别")).toBeInTheDocument();
     expect(screen.getByText("帮我写作")).toBeInTheDocument();
   });
 
   it("keeps homepage cards visually concise", () => {
     render(<Home />);
 
-    expect(screen.getByText("问制度、问政策")).toBeInTheDocument();
+    expect(screen.getByText("问财务、问行政")).toBeInTheDocument();
     expect(screen.queryByText("快速定位制度依据")).not.toBeInTheDocument();
     expect(screen.queryByText("快速找到负责同事")).not.toBeInTheDocument();
   });
@@ -86,7 +86,7 @@ describe("Home", () => {
     await user.click(screen.getByText("找制度"));
 
     expect(screen.getByText("推荐查询方案")).toBeInTheDocument();
-    expect(screen.getByText("查询特定项目的验收结果")).toBeInTheDocument();
+    expect(screen.getByText("查询差旅报销标准")).toBeInTheDocument();
   });
 
   it("opens the history drawer and renders saved conversation summaries", async () => {
@@ -99,13 +99,13 @@ describe("Home", () => {
         sessions: [
           {
             sessionId: "home-1",
-            title: "PMS制卡问题应该找谁处理？",
+            title: "报销单被退回应该联系谁？",
             updatedAt: Date.now(),
             messages: [
               {
                 id: "m1",
                 role: "user",
-                content: "PMS制卡问题应该找谁处理？",
+                content: "报销单被退回应该联系谁？",
               },
             ],
           },
@@ -123,9 +123,7 @@ describe("Home", () => {
 
     expect(historyDrawer).not.toBeNull();
     expect(within(historyDrawer!).getByText("开启新话题")).toBeInTheDocument();
-    expect(
-      within(historyDrawer!).getByText("PMS制卡问题应该找谁处理？"),
-    ).toBeInTheDocument();
+    expect(within(historyDrawer!).getByText("报销单被退回应该联系谁？")).toBeInTheDocument();
   });
 
   it("restores a saved conversation when clicking a history record", async () => {
@@ -150,18 +148,18 @@ describe("Home", () => {
           },
           {
             sessionId: "home-1",
-            title: "PMS制卡问题应该找谁处理？",
+            title: "报销单被退回应该联系谁？",
             updatedAt: Date.now() - 1000,
             messages: [
               {
                 id: "m1",
                 role: "user",
-                content: "PMS制卡问题应该找谁处理？",
+                content: "报销单被退回应该联系谁？",
               },
               {
                 id: "m1a",
                 role: "assistant",
-                content: "请联系门店系统支持同学处理。",
+                content: "请联系财务同学处理报销退回问题。",
               },
             ],
           },
@@ -174,11 +172,11 @@ describe("Home", () => {
     await user.click(screen.getByRole("button", { name: /历史记录/i }));
     await user.click(
       screen.getByRole("button", {
-        name: /PMS制卡问题应该找谁处理/,
+        name: /报销单被退回应该联系谁/,
       }),
     );
 
-    expect(screen.getByText("请联系门店系统支持同学处理。")).toBeInTheDocument();
+    expect(screen.getByText("请联系财务同学处理报销退回问题。")).toBeInTheDocument();
   });
 
   it("fills example question into input without sending when clicked", async () => {
@@ -189,26 +187,24 @@ describe("Home", () => {
     render(<Home />);
 
     await user.click(
-      screen.getByRole("button", { name: "PMS制卡问题应该找谁处理？" }),
+      screen.getByRole("button", { name: "报销单被退回应该联系谁？" }),
     );
 
     // text should appear in the input box
-    expect(screen.getByLabelText("输入消息")).toHaveValue(
-      "PMS制卡问题应该找谁处理？",
-    );
+    expect(screen.getByLabelText("输入消息")).toHaveValue("报销单被退回应该联系谁？");
     // fetch should NOT have been called because we only fill, not send
     expect(globalThis.fetch).not.toHaveBeenCalled();
   });
 
-  it("shows an explicit placeholder state for image generation", async () => {
+  it("shows an explicit placeholder state for invoice OCR", async () => {
     const user = userEvent.setup();
 
     render(<Home />);
 
-    await user.click(screen.getByText("图片生成"));
+    await user.click(screen.getByText("发票识别"));
 
     expect(
-      screen.getByText("图片生成功能尚未上线。我可以先帮你整理提示词、镜头语言和使用场景，等能力接入后可直接复用。"),
+      screen.getByText("发票识别能力尚未上线。我可以先帮你整理票据类型、识别字段和使用场景，等 OCR 能力接入后可直接复用。"),
     ).toBeInTheDocument();
   });
 
@@ -218,7 +214,7 @@ describe("Home", () => {
     vi.spyOn(globalThis, "fetch").mockResolvedValue(
       new Response(
         JSON.stringify({
-          reply: "请联系门店系统支持同学处理 PMS 制卡问题。",
+          reply: "请联系财务同学处理报销退回问题。",
         }),
         {
           status: 200,
@@ -233,7 +229,7 @@ describe("Home", () => {
 
     // Click example → fills input
     await user.click(
-      screen.getByRole("button", { name: "PMS制卡问题应该找谁处理？" }),
+      screen.getByRole("button", { name: "报销单被退回应该联系谁？" }),
     );
 
     // Then submit with Enter
@@ -251,7 +247,7 @@ describe("Home", () => {
       }),
     );
     expect(
-      screen.getByText("请联系门店系统支持同学处理 PMS 制卡问题。"),
+      screen.getByText("请联系财务同学处理报销退回问题。"),
     ).toBeInTheDocument();
   });
 
@@ -261,7 +257,7 @@ describe("Home", () => {
     vi.spyOn(globalThis, "fetch").mockResolvedValue(
       new Response(
         JSON.stringify({
-          reply: "请联系门店系统支持同学处理 PMS 制卡问题。",
+          reply: "请联系财务同学处理报销退回问题。",
         }),
         {
           status: 200,
@@ -275,7 +271,7 @@ describe("Home", () => {
     render(<Home />);
 
     await user.click(
-      screen.getByRole("button", { name: "PMS制卡问题应该找谁处理？" }),
+      screen.getByRole("button", { name: "报销单被退回应该联系谁？" }),
     );
     await user.keyboard("{Enter}");
 

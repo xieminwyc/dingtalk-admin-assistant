@@ -10,6 +10,15 @@ export const sampleKnowledgeCards: KnowledgeCard[] = [
     scope: "适用于正式员工年假政策查询"
   },
   {
+    id: "card-finance-expense-policy",
+    title: "差旅报销标准",
+    content:
+      "差旅报销按交通、住宿和出差补贴标准执行，提交报销时需附审批单和合规发票，超标部分需要补充说明。",
+    department: "财务",
+    keywords: ["报销", "差旅", "发票", "费用"],
+    scope: "适用于财务报销制度查询"
+  },
+  {
     id: "card-admin-meeting-room",
     title: "会议室预订",
     content: "进入行政服务台提交会议室预订申请，填写时间、人数和设备需求后等待确认。",

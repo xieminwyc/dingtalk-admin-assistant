@@ -44,7 +44,7 @@ export function DrilldownCanvas({
 
       {activeCard.isPlaceholder ? (
         <div className="portal-drilldown-placeholder">
-          图片生成功能尚未上线。我可以先帮你整理提示词、镜头语言和使用场景，等能力接入后可直接复用。
+          发票识别能力尚未上线。我可以先帮你整理票据类型、识别字段和使用场景，等 OCR 能力接入后可直接复用。
         </div>
       ) : null}
 

@@ -192,7 +192,7 @@ export function createRequestRouter(input: {
           kind: "open_response",
           intent: "smalltalk",
           reply:
-            "图片生成功能即将支持。你可以先告诉我主题、风格和使用场景，我可以先帮你整理提示词。",
+            "发票识别能力即将支持。你可以先告诉我票据类型、需要提取的字段和使用场景，我可以先帮你整理 OCR 需求。",
         };
       }
 

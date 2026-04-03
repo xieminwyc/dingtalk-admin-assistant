@@ -4,6 +4,7 @@ import type { IntentType } from "./intent.types";
 import type { AssistantDecision } from "./intent.types";
 import {
   buildFallbackDecision,
+  buildModelErrorDecision,
   type ModelIntentClassifier
 } from "./model-intent-classifier";
 
@@ -118,10 +119,10 @@ export function createIntentAnalyzer(
 
         return buildAnalysisResult(decision, "model");
       } catch {
-        // 这里不再退回本地规则，而是统一走轻量澄清；
-        // 这样第二阶段的行为边界始终保持“模型主导，失败时保守追问”。
+        // 这里不再退回本地规则，而是统一走友好报错；
+        // 避免把模型异常伪装成“需要用户继续补充信息”。
         const reason = "model failed";
-        const fallbackDecision = buildFallbackDecision();
+        const fallbackDecision = buildModelErrorDecision();
 
         console.warn(
           formatIntentLog(

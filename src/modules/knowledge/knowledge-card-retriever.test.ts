@@ -24,6 +24,14 @@ describe("KnowledgeCardRetriever", () => {
     expect(result.hits[0]?.department).toBe("行政");
   });
 
+  it("returns a finance knowledge hit for reimbursement questions", async () => {
+    const result = await retriever.search("差旅报销标准");
+
+    expect(result.hits).toHaveLength(1);
+    expect(result.hits[0]?.title).toBe("差旅报销标准");
+    expect(result.hits[0]?.department).toBe("财务");
+  });
+
   it("applies department filtering when provided", async () => {
     const result = await retriever.search("申请", { department: "IT" });
 
@@ -74,7 +82,7 @@ describe("KnowledgeCardRetriever", () => {
   });
 
   it("returns no hits for unrelated queries", async () => {
-    const result = await retriever.search("下午茶报销规则");
+    const result = await retriever.search("番茄炒蛋怎么做");
 
     expect(result.hits).toEqual([]);
     expect(result.relatedKeywords ?? []).toEqual([]);

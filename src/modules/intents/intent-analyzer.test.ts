@@ -171,7 +171,7 @@ describe("createIntentAnalyzer", () => {
       needTaskResolution: false,
       toolPlan: "none",
       topicShift: false,
-      clarifyQuestion: "我先确认一下，你是想查制度说明，还是想办理流程？",
+      clarifyQuestion: "当前系统开小差了，请稍后再试。",
       intent: "unknown",
       source: "fallback"
     });

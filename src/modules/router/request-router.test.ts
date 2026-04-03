@@ -481,13 +481,13 @@ describe("createRequestRouter", () => {
     });
 
     const resolution = await router.route({
-      query: "PMS制卡问题应该找谁处理？",
+      query: "报销单被退回应该联系谁？",
       entryMode: "contact",
       intent: buildIntent("unknown")
     });
 
     expect(contactDirectory.resolve).toHaveBeenCalledWith({
-      query: "PMS制卡问题应该找谁处理？"
+      query: "报销单被退回应该联系谁？"
     });
     expect(resolution).toMatchObject({
       kind: "contact",
@@ -506,7 +506,7 @@ describe("createRequestRouter", () => {
     });
 
     const resolution = await router.route({
-      query: "画一幅江南春景图",
+      query: "帮我识别这张发票的金额和税额",
       entryMode: "image_placeholder",
       intent: buildIntent("smalltalk")
     });
@@ -515,7 +515,7 @@ describe("createRequestRouter", () => {
       kind: "open_response",
       intent: "smalltalk",
       reply:
-        "图片生成功能即将支持。你可以先告诉我主题、风格和使用场景，我可以先帮你整理提示词。"
+        "发票识别能力即将支持。你可以先告诉我票据类型、需要提取的字段和使用场景，我可以先帮你整理 OCR 需求。"
     });
   });
 
