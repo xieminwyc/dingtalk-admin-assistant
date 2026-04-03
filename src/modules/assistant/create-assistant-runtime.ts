@@ -52,7 +52,9 @@ type AssistantRuntime = {
   localRetriever: KnowledgeRetriever;
   externalRetriever?: KnowledgeRetriever;
   externalKnowledge?: {
-    ask(data: RagAskRequest): Promise<Awaited<ReturnType<KnowledgeApiClient["ask"]>>>;
+    ask(
+      data: RagAskRequest,
+    ): Promise<Awaited<ReturnType<KnowledgeApiClient["ask"]>>>;
     askStream(data: RagAskRequest): Promise<Response>;
     getMappedSessionId(sessionId?: string): string | undefined;
     setMappedSessionId(
@@ -287,7 +289,6 @@ function scoreExternalAnswer(answer: string): number {
     "未找到",
     "无法判断",
     "无法确定",
-    "根据提供的文档片段",
   ];
 
   return lowConfidencePatterns.some((pattern) =>
@@ -340,7 +341,11 @@ function buildTitleBySourceUrl(items: RagSearchItem[]): Map<string, string> {
   const titleBySourceUrl = new Map<string, string>();
 
   for (const item of items) {
-    if (!item.sourceUrl || !item.title || titleBySourceUrl.has(item.sourceUrl)) {
+    if (
+      !item.sourceUrl ||
+      !item.title ||
+      titleBySourceUrl.has(item.sourceUrl)
+    ) {
       continue;
     }
 
@@ -384,7 +389,7 @@ export function createExternalRagProvider(input: {
         // 记下服务端为其创建的 session 关系，供后续追问使用
         setMappedRagSessionId(sessionId, response.sessionId);
 
-        // 既然我们已经全面转用自带答复能力的 /ask 接口，直接提取最终 answer 
+        // 既然我们已经全面转用自带答复能力的 /ask 接口，直接提取最终 answer
         if (!response.answer) {
           return [];
         }
@@ -440,8 +445,13 @@ export function createExternalRagProvider(input: {
       } catch (error: any) {
         console.error("[ExternalRagProvider] search error:", error);
         // 对于超时错误，返回空数组而不是抛出错误，让系统降级到本地知识库
-        if (error.message.includes('超时') || error.message.includes('timeout')) {
-          console.warn(`[ExternalRagProvider] 搜索超时，降级到本地知识库: ${query}`);
+        if (
+          error.message.includes("超时") ||
+          error.message.includes("timeout")
+        ) {
+          console.warn(
+            `[ExternalRagProvider] 搜索超时，降级到本地知识库: ${query}`,
+          );
           return [];
         }
         // 其他错误仍然抛出

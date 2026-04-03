@@ -33,6 +33,10 @@ describe("Home", () => {
   afterEach(() => {
     vi.restoreAllMocks();
     window.localStorage.clear();
+    window.history.replaceState({}, "", "/");
+    delete (window as Window & { dd?: unknown }).dd;
+    delete (window as Window & { DingTalkPC?: unknown }).DingTalkPC;
+    delete process.env.DINGTALK_CORP_ID;
   });
 
   it("renders the five homepage entry cards", () => {
@@ -395,6 +399,133 @@ describe("Home", () => {
       expect(screen.getByText("报销流程如下。")).toBeInTheDocument();
     });
     expect(screen.getByText("费用报销制度")).toBeInTheDocument();
+  });
+
+  it("includes senderStaffId in the homepage stream request when the browser already knows the current user", async () => {
+    const user = userEvent.setup();
+
+    window.history.replaceState(
+      {},
+      "",
+      "/?senderStaffId=0215084121561138029",
+    );
+
+    vi.spyOn(globalThis, "fetch").mockResolvedValue(
+      buildSseResponse([
+        {
+          type: "chunk",
+          content: "报销",
+        },
+        {
+          type: "done",
+          reply: "报销",
+        },
+      ]),
+    );
+
+    render(<Home />);
+
+    await user.click(screen.getByText("找制度"));
+    await user.type(screen.getByLabelText("输入消息"), "报销流程是什么{enter}");
+
+    await waitFor(() => {
+      expect(globalThis.fetch).toHaveBeenCalledTimes(1);
+    });
+
+    expect(globalThis.fetch).toHaveBeenCalledWith(
+      "/api/dingtalk/webhook/stream",
+      expect.objectContaining({
+        method: "POST",
+        body: expect.stringContaining(
+          '"senderStaffId":"0215084121561138029"',
+        ),
+      }),
+    );
+  });
+
+  it("exchanges authCode and includes senderStaffId in the homepage stream request", async () => {
+    const user = userEvent.setup();
+
+    process.env.DINGTALK_CORP_ID = "dingcorp-test";
+
+    const ready = vi.fn((callback: () => void) => callback());
+    const requestAuthCode = vi.fn(
+      ({
+        onSuccess,
+      }: {
+        onSuccess?: (payload: { code?: string }) => void;
+      }) => onSuccess?.({ code: "auth-code-1" }),
+    );
+
+    Object.assign(window, {
+      dd: {
+        ready,
+        runtime: {
+          permission: {
+            requestAuthCode,
+          },
+        },
+      },
+    });
+
+    vi.spyOn(globalThis, "fetch").mockImplementation(async (input) => {
+      if (input === "/api/dingtalk/browser-identity") {
+        return Response.json({
+          senderStaffId: "0215084121561138029",
+        });
+      }
+
+      if (input === "/api/dingtalk/webhook/stream") {
+        return buildSseResponse([
+          {
+            type: "chunk",
+            content: "报销",
+          },
+          {
+            type: "done",
+            reply: "报销",
+          },
+        ]);
+      }
+
+      throw new Error(`Unexpected fetch: ${String(input)}`);
+    });
+
+    render(<Home />);
+
+    await user.click(screen.getByText("找制度"));
+    await user.type(screen.getByLabelText("输入消息"), "报销流程是什么{enter}");
+
+    await waitFor(() => {
+      expect(globalThis.fetch).toHaveBeenCalledWith(
+        "/api/dingtalk/browser-identity",
+        expect.objectContaining({
+          method: "POST",
+          body: JSON.stringify({
+            authCode: "auth-code-1",
+          }),
+        }),
+      );
+    });
+
+    expect(globalThis.fetch).toHaveBeenCalledWith(
+      "/api/dingtalk/webhook/stream",
+      expect.objectContaining({
+        method: "POST",
+        body: expect.stringContaining(
+          '"senderStaffId":"0215084121561138029"',
+        ),
+      }),
+    );
+    expect(globalThis.fetch).toHaveBeenCalledWith(
+      "/api/dingtalk/webhook/stream",
+      expect.objectContaining({
+        method: "POST",
+        body: expect.stringContaining(
+          '"senderSource":"dd.runtime.permission.requestAuthCode"',
+        ),
+      }),
+    );
   });
 
   it("opens an image preview dialog when a cited image is clicked", async () => {

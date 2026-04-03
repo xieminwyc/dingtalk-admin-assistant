@@ -38,6 +38,8 @@ type DingTalkWebhookPayload = {
   };
   senderStaffId?: string;
   senderId?: string;
+  senderSource?: string;
+  senderDiagnostics?: Record<string, boolean | string | undefined>;
 };
 
 type WebhookStreamChunkEvent = {
@@ -496,6 +498,8 @@ export async function POST(request: Request) {
     senderStaffId: maskIdentifier(body.senderStaffId),
     resolvedUserId: maskIdentifier(assistantInput.userId),
     sessionId: assistantInput.sessionId,
+    senderSource: body.senderSource,
+    senderDiagnostics: body.senderDiagnostics,
   });
   const runtime = getAssistantRuntime();
 

@@ -1,7 +1,6 @@
-import { afterEach, describe, expect, it, vi } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 async function importFreshRoute() {
-  vi.resetModules();
   const routeModule = await import("./route");
   return routeModule.POST;
 }
@@ -17,6 +16,10 @@ function readSseEvents(payload: string) {
 }
 
 describe("POST /api/dingtalk/webhook/stream", () => {
+  beforeEach(() => {
+    vi.resetModules();
+  });
+
   afterEach(() => {
     vi.restoreAllMocks();
     vi.doUnmock("@/modules/assistant/create-assistant-runtime");
@@ -86,12 +89,12 @@ describe("POST /api/dingtalk/webhook/stream", () => {
 
     expect(infoSpy).toHaveBeenCalledWith(
       "[webhook/stream] incoming sender",
-      {
+      expect.objectContaining({
         senderId: "0215***8029",
         senderStaffId: undefined,
         resolvedUserId: "0215***8029",
         sessionId: "home-task-log-1",
-      },
+      }),
     );
 
     vi.doUnmock("@/modules/assistant/create-assistant-runtime");
