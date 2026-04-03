@@ -250,11 +250,10 @@ function requestAuthCode(input: {
   clientId?: string;
 }) {
   return new Promise<string | undefined>((resolve) => {
-    // Prefer top-level dd.requestAuthCode (JSAPI 3.x, returns OAuth2 code)
-    // over dd.runtime.permission.requestAuthCode (legacy, returns old-style code)
-    const requestCode =
-      input.bridge.requestAuthCode ??
-      input.bridge.runtime?.permission?.requestAuthCode;
+    // Use the legacy dd.runtime.permission.requestAuthCode only —
+    // the top-level dd.requestAuthCode requires clientId and produces
+    // OAuth2 codes incompatible with the old topapi endpoint.
+    const requestCode = input.bridge.runtime?.permission?.requestAuthCode;
 
     if (!requestCode) {
       resolve(undefined);
