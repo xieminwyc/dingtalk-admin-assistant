@@ -264,7 +264,6 @@ function requestAuthCode(input: {
     try {
       requestCode({
         corpId: input.corpId,
-        ...(input.clientId ? { clientId: input.clientId } : {}),
         onSuccess(payload) {
           resolve(
             normalizeSenderStaffId(payload.code) ||
@@ -430,29 +429,6 @@ export async function resolveDingTalkSenderIdentity(
         };
       }
     }
-  }
-
-  // All JSAPI methods failed. If we have clientId and are in DingTalk UA,
-  // try OAuth2 redirect flow as a last resort.
-  if (
-    options?.clientId &&
-    options.resolveUserIdFromAuthCode &&
-    diagnostics.isDingTalkUa &&
-    !oauth2Code // Don't redirect again if we already tried an OAuth2 code
-  ) {
-    const redirectUri = encodeURIComponent(win.location.origin);
-    const authUrl =
-      `https://login.dingtalk.com/oauth2/auth?redirect_uri=${redirectUri}` +
-      `&client_id=${encodeURIComponent(options.clientId)}` +
-      `&response_type=code&scope=openid%20corpid&prompt=consent` +
-      `&state=dingtalk-identity`;
-    win.location.href = authUrl;
-    // Return unavailable — the page will redirect before this is used
-    return {
-      senderStaffId: undefined,
-      source: "unavailable",
-      diagnostics,
-    };
   }
 
   return {

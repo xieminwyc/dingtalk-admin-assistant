@@ -1,20 +1,21 @@
-type DingTalkAccessTokenResponse = {
-  accessToken?: string;
+type DingTalkOldAccessTokenResponse = {
+  access_token?: string;
+  errcode?: number;
+  errmsg?: string;
 };
 
-type DingTalkUserTokenResponse = {
-  accessToken?: string;
-};
-
-type DingTalkContactUserResponse = {
-  userid?: string;
+type DingTalkAuthCodeResponse = {
+  result?: {
+    userid?: string;
+  };
+  errcode?: number;
+  errmsg?: string;
 };
 
 type DingTalkIdentityApiPort = {
-  getAccessToken(clientId: string, clientSecret: string): Promise<string>;
+  getAccessToken(appKey: string, appSecret: string): Promise<string>;
   getUserIdByAuthCode(
-    clientId: string,
-    clientSecret: string,
+    accessToken: string,
     authCode: string,
   ): Promise<string | undefined>;
 };
@@ -23,90 +24,68 @@ export function createDingTalkIdentityApi(
   fetchImpl: typeof fetch = fetch,
 ): DingTalkIdentityApiPort {
   return {
-    async getAccessToken(clientId, clientSecret) {
-      const response = await fetchImpl(
-        "https://api.dingtalk.com/v1.0/oauth2/accessToken",
-        {
-          method: "POST",
-          headers: {
-            "Content-Type": "application/json",
-          },
-          body: JSON.stringify({
-            appKey: clientId,
-            appSecret: clientSecret,
-          }),
-        },
-      );
+    async getAccessToken(appKey, appSecret) {
+      // Use the OLD gettoken endpoint — its access_token is required by
+      // the old topapi/v2/user/getuserinfo endpoint.
+      const url = new URL("https://oapi.dingtalk.com/gettoken");
+      url.searchParams.set("appkey", appKey);
+      url.searchParams.set("appsecret", appSecret);
+
+      const response = await fetchImpl(url.toString(), { method: "GET" });
 
       if (!response.ok) {
         throw new Error(`getAccessToken failed: ${response.status}`);
       }
 
-      const data = (await response.json()) as DingTalkAccessTokenResponse;
+      const data = (await response.json()) as DingTalkOldAccessTokenResponse;
 
-      if (!data.accessToken) {
-        throw new Error("getAccessToken: missing accessToken in response");
+      if (data.errcode && data.errcode !== 0) {
+        throw new Error(
+          `getAccessToken business error: errcode=${data.errcode}, errmsg=${data.errmsg ?? "unknown"}`,
+        );
       }
 
-      return data.accessToken;
+      if (!data.access_token) {
+        throw new Error("getAccessToken: missing access_token in response");
+      }
+
+      return data.access_token;
     },
 
-    async getUserIdByAuthCode(clientId, clientSecret, authCode) {
-      // Step 1: Exchange authCode for user access token via OAuth2
-      const tokenResponse = await fetchImpl(
-        "https://api.dingtalk.com/v1.0/oauth2/userAccessToken",
+    async getUserIdByAuthCode(accessToken, authCode) {
+      console.info("[identity-api] getUserIdByAuthCode", {
+        authCodeLength: authCode.length,
+        authCodePrefix: authCode.slice(0, 8),
+      });
+
+      const response = await fetchImpl(
+        `https://oapi.dingtalk.com/topapi/v2/user/getuserinfo?access_token=${encodeURIComponent(accessToken)}`,
         {
           method: "POST",
-          headers: {
-            "Content-Type": "application/json",
-          },
-          body: JSON.stringify({
-            clientId,
-            clientSecret,
-            code: authCode,
-            grantType: "authorization_code",
-          }),
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ code: authCode }),
         },
       );
 
-      if (!tokenResponse.ok) {
-        const text = await tokenResponse.text();
+      if (!response.ok) {
+        throw new Error(`getUserIdByAuthCode failed: ${response.status}`);
+      }
+
+      const data = (await response.json()) as DingTalkAuthCodeResponse;
+
+      console.info("[identity-api] getUserIdByAuthCode response", {
+        errcode: data.errcode,
+        errmsg: data.errmsg,
+        hasUserid: Boolean(data.result?.userid),
+      });
+
+      if (data.errcode && data.errcode !== 0) {
         throw new Error(
-          `getUserIdByAuthCode userAccessToken failed: ${tokenResponse.status} ${text}`,
+          `getUserIdByAuthCode business error: errcode=${data.errcode}, errmsg=${data.errmsg ?? "unknown"}`,
         );
       }
 
-      const tokenData =
-        (await tokenResponse.json()) as DingTalkUserTokenResponse;
-
-      if (!tokenData.accessToken) {
-        throw new Error(
-          "getUserIdByAuthCode: missing accessToken in userAccessToken response",
-        );
-      }
-
-      // Step 2: Use user access token to get user info
-      const userResponse = await fetchImpl(
-        "https://api.dingtalk.com/v1.0/contact/users/me",
-        {
-          method: "GET",
-          headers: {
-            "x-acs-dingtalk-access-token": tokenData.accessToken,
-          },
-        },
-      );
-
-      if (!userResponse.ok) {
-        const text = await userResponse.text();
-        throw new Error(
-          `getUserIdByAuthCode contact/users/me failed: ${userResponse.status} ${text}`,
-        );
-      }
-
-      const userData =
-        (await userResponse.json()) as DingTalkContactUserResponse;
-
-      return userData.userid;
+      return data.result?.userid;
     },
   };
 }
@@ -120,11 +99,12 @@ export function createDingTalkIdentityService(input: {
 
   return {
     async resolveUserIdFromAuthCode(authCode: string) {
-      return api.getUserIdByAuthCode(
+      const accessToken = await api.getAccessToken(
         input.clientId,
         input.clientSecret,
-        authCode,
       );
+
+      return api.getUserIdByAuthCode(accessToken, authCode);
     },
   };
 }
