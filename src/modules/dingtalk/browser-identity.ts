@@ -57,6 +57,7 @@ export type ResolvedDingTalkSenderIdentity = {
     | "DingTalkPC.biz.user.get"
     | "dd.runtime.permission.requestAuthCode"
     | "DingTalkPC.runtime.permission.requestAuthCode"
+    | "oauth2-redirect"
     | "unavailable";
   diagnostics?: {
     corpIdProvided: boolean;
@@ -72,6 +73,7 @@ export type ResolvedDingTalkSenderIdentity = {
     scriptLoadSucceeded: boolean;
     authCodeAttempted: boolean;
     authCodeResolved: boolean;
+    oauth2CodeFromUrl: boolean;
   };
 };
 
@@ -129,6 +131,7 @@ function collectBridgeDiagnostics(
     scriptLoadSucceeded: false,
     authCodeAttempted: false,
     authCodeResolved: false,
+    oauth2CodeFromUrl: false,
     ...input,
   };
 }
@@ -291,9 +294,14 @@ export async function resolveDingTalkSenderIdentity(
   },
 ): Promise<ResolvedDingTalkSenderIdentity> {
   const senderStaffIdFromQuery = readSenderStaffIdFromQuery(win.location.search);
+  const urlParams = new URLSearchParams(win.location.search);
+  const oauth2Code =
+    normalizeSenderStaffId(urlParams.get("authCode")) ||
+    normalizeSenderStaffId(urlParams.get("code"));
   let diagnostics = collectBridgeDiagnostics(win, {
     corpIdProvided: Boolean(options?.corpId),
     queryHasSenderStaffId: Boolean(senderStaffIdFromQuery),
+    oauth2CodeFromUrl: Boolean(oauth2Code),
   });
 
   if (senderStaffIdFromQuery) {
@@ -302,6 +310,29 @@ export async function resolveDingTalkSenderIdentity(
       source: "query",
       diagnostics,
     };
+  }
+
+  // Check for OAuth2 redirect code in URL (from DingTalk OAuth2 redirect flow)
+  if (oauth2Code && options?.resolveUserIdFromAuthCode) {
+    // Clean the code from URL to prevent re-use on refresh
+    const cleanUrl = new URL(win.location.href);
+    cleanUrl.searchParams.delete("authCode");
+    cleanUrl.searchParams.delete("code");
+    cleanUrl.searchParams.delete("state");
+    win.history.replaceState(null, "", cleanUrl.toString());
+
+    const senderStaffId = await options
+      .resolveUserIdFromAuthCode(oauth2Code)
+      .catch(() => undefined);
+
+    if (senderStaffId) {
+      diagnostics.authCodeResolved = true;
+      return {
+        senderStaffId,
+        source: "oauth2-redirect",
+        diagnostics,
+      };
+    }
   }
 
   if (!win.dd && !win.DingTalkPC && diagnostics.isDingTalkUa) {
@@ -399,6 +430,29 @@ export async function resolveDingTalkSenderIdentity(
         };
       }
     }
+  }
+
+  // All JSAPI methods failed. If we have clientId and are in DingTalk UA,
+  // try OAuth2 redirect flow as a last resort.
+  if (
+    options?.clientId &&
+    options.resolveUserIdFromAuthCode &&
+    diagnostics.isDingTalkUa &&
+    !oauth2Code // Don't redirect again if we already tried an OAuth2 code
+  ) {
+    const redirectUri = encodeURIComponent(win.location.origin + win.location.pathname);
+    const authUrl =
+      `https://login.dingtalk.com/oauth2/auth?redirect_uri=${redirectUri}` +
+      `&client_id=${encodeURIComponent(options.clientId)}` +
+      `&response_type=code&scope=openid&prompt=consent` +
+      `&state=dingtalk-identity`;
+    win.location.href = authUrl;
+    // Return unavailable — the page will redirect before this is used
+    return {
+      senderStaffId: undefined,
+      source: "unavailable",
+      diagnostics,
+    };
   }
 
   return {
