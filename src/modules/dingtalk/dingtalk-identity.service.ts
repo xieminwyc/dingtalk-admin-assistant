@@ -139,14 +139,19 @@ export function createDingTalkIdentityApi(
       );
 
       if (!response.ok) {
-        console.warn("[identity-api] getUserAccessTokenV2 http failed:", response.status);
+        console.warn(
+          "[identity-api] getUserAccessTokenV2 http failed:",
+          response.status,
+        );
         return undefined;
       }
 
       const data = (await response.json()) as DingTalkOAuth2TokenResponse;
 
       if (!data.accessToken) {
-        console.warn("[identity-api] getUserAccessTokenV2: missing accessToken");
+        console.warn(
+          "[identity-api] getUserAccessTokenV2: missing accessToken",
+        );
         return undefined;
       }
 
@@ -163,7 +168,10 @@ export function createDingTalkIdentityApi(
       );
 
       if (!response.ok) {
-        console.warn("[identity-api] getUserUnionIdV2 http failed:", response.status);
+        console.warn(
+          "[identity-api] getUserUnionIdV2 http failed:",
+          response.status,
+        );
         return undefined;
       }
 
@@ -187,7 +195,10 @@ export function createDingTalkIdentityApi(
       );
 
       if (!response.ok) {
-        console.warn("[identity-api] getUserIdByUnionId http failed:", response.status);
+        console.warn(
+          "[identity-api] getUserIdByUnionId http failed:",
+          response.status,
+        );
         return undefined;
       }
 
