@@ -27,6 +27,11 @@ export async function POST(request: Request) {
   const body = (await request.json()) as BrowserIdentityPayload;
   const authCode = body.authCode?.trim();
 
+  console.info("[browser-identity] received authCode", {
+    length: authCode?.length,
+    prefix: authCode?.slice(0, 10),
+  });
+
   if (!authCode) {
     return Response.json(
       {
