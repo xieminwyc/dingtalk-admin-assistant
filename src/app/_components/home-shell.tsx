@@ -177,7 +177,7 @@ async function readStreamEvents(
   }
 }
 
-export function HomeShell({ dingtalkCorpId }: { dingtalkCorpId?: string }) {
+export function HomeShell({ dingtalkCorpId, dingtalkClientId }: { dingtalkCorpId?: string; dingtalkClientId?: string }) {
   const [sessionId, setSessionId] = useState(createSessionId);
   const [view, setView] = useState<HomeView>("home");
   const [draft, setDraft] = useState("");
@@ -218,7 +218,9 @@ export function HomeShell({ dingtalkCorpId }: { dingtalkCorpId?: string }) {
 
   useEffect(() => {
     try {
-      const rawValue = window.localStorage.getItem(HOMEPAGE_SESSION_STORAGE_KEY);
+      const rawValue = window.localStorage.getItem(
+        HOMEPAGE_SESSION_STORAGE_KEY,
+      );
 
       if (!rawValue) {
         return;
@@ -249,21 +251,24 @@ export function HomeShell({ dingtalkCorpId }: { dingtalkCorpId?: string }) {
     if (!senderIdentityPromiseRef.current) {
       senderIdentityPromiseRef.current = resolveDingTalkSenderIdentity(window, {
         corpId: dingtalkCorpId,
+        clientId: dingtalkClientId,
         resolveUserIdFromAuthCode: resolveSenderStaffIdFromAuthCode,
-      }).then((identity) => {
-        senderIdentityRef.current = identity;
-        setDebugSender({ status: "ok", identity });
-        console.info("[home] resolved dingtalk sender", {
-          senderStaffId: identity.senderStaffId,
-          source: identity.source,
-          diagnostics: identity.diagnostics,
+      })
+        .then((identity) => {
+          senderIdentityRef.current = identity;
+          setDebugSender({ status: "ok", identity });
+          console.info("[home] resolved dingtalk sender", {
+            senderStaffId: identity.senderStaffId,
+            source: identity.source,
+            diagnostics: identity.diagnostics,
+          });
+          return identity;
+        })
+        .catch((err: unknown) => {
+          const message = err instanceof Error ? err.message : String(err);
+          setDebugSender({ status: "error", message });
+          return { source: "unavailable" } as ResolvedDingTalkSenderIdentity;
         });
-        return identity;
-      }).catch((err: unknown) => {
-        const message = err instanceof Error ? err.message : String(err);
-        setDebugSender({ status: "error", message });
-        return { source: "unavailable" } as ResolvedDingTalkSenderIdentity;
-      });
     }
 
     return senderIdentityPromiseRef.current;
@@ -292,7 +297,9 @@ export function HomeShell({ dingtalkCorpId }: { dingtalkCorpId?: string }) {
     };
 
     setSavedSessions((current) => {
-      const remaining = current.filter((summary) => summary.sessionId !== sessionId);
+      const remaining = current.filter(
+        (summary) => summary.sessionId !== sessionId,
+      );
       const nextSessions = [
         {
           sessionId: nextSummary.sessionId,
@@ -380,15 +387,14 @@ export function HomeShell({ dingtalkCorpId }: { dingtalkCorpId?: string }) {
     }
 
     try {
-      const senderIdentity =
-        senderIdentityRef.current.senderStaffId
-          ? senderIdentityRef.current
-          : await ensureSenderIdentity()?.catch(
-              (): ResolvedDingTalkSenderIdentity => ({
-                senderStaffId: undefined,
-                source: "unavailable",
-              }),
-            );
+      const senderIdentity = senderIdentityRef.current.senderStaffId
+        ? senderIdentityRef.current
+        : await ensureSenderIdentity()?.catch(
+            (): ResolvedDingTalkSenderIdentity => ({
+              senderStaffId: undefined,
+              source: "unavailable",
+            }),
+          );
 
       const response = await fetch("/api/dingtalk/webhook/stream", {
         method: "POST",
@@ -547,16 +553,17 @@ export function HomeShell({ dingtalkCorpId }: { dingtalkCorpId?: string }) {
     }
 
     const lastMode =
-      [...selectedSession.messages]
-        .reverse()
-        .find((message) => message.mode)?.mode ?? null;
+      [...selectedSession.messages].reverse().find((message) => message.mode)
+        ?.mode ?? null;
 
     const nextSessions = [
       {
         ...selectedSession,
         updatedAt: Date.now(),
       },
-      ...savedSessions.filter((session) => session.sessionId !== targetSessionId),
+      ...savedSessions.filter(
+        (session) => session.sessionId !== targetSessionId,
+      ),
     ].slice(0, 10);
 
     setSessionId(selectedSession.sessionId);
@@ -669,8 +676,7 @@ export function HomeShell({ dingtalkCorpId }: { dingtalkCorpId?: string }) {
               letterSpacing: "0.02em",
             }}
           >
-            uid:{" "}
-            <strong>{debugSender.identity.senderStaffId ?? "(空)"}</strong>
+            uid: <strong>{debugSender.identity.senderStaffId ?? "(空)"}</strong>
             {" · "}src: {debugSender.identity.source}
           </span>
         )}
@@ -696,7 +702,9 @@ export function HomeShell({ dingtalkCorpId }: { dingtalkCorpId?: string }) {
       {view === "drilldown" && activeCard ? (
         <DrilldownCanvas
           activeCard={activeCard}
-          onFillExample={(text) => handleFillExample(text, activeCard.entryMode)}
+          onFillExample={(text) =>
+            handleFillExample(text, activeCard.entryMode)
+          }
         />
       ) : null}
 

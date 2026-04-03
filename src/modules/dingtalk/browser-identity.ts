@@ -18,6 +18,7 @@ type DingTalkAuthCodePayload = {
 
 type DingTalkRequestAuthCodeOptions = {
   corpId?: string;
+  clientId?: string;
   onSuccess?: (payload: DingTalkAuthCodePayload) => void;
   onFail?: (error: unknown) => void;
 };
@@ -242,6 +243,7 @@ function requestSenderStaffId(input: {
 function requestAuthCode(input: {
   bridge: DingTalkBridge;
   corpId: string;
+  clientId?: string;
 }) {
   return new Promise<string | undefined>((resolve) => {
     const requestCode = input.bridge.runtime?.permission?.requestAuthCode;
@@ -254,6 +256,7 @@ function requestAuthCode(input: {
     try {
       requestCode({
         corpId: input.corpId,
+        ...(input.clientId ? { clientId: input.clientId } : {}),
         onSuccess(payload) {
           resolve(
             normalizeSenderStaffId(payload.code) ||
@@ -274,6 +277,7 @@ export async function resolveDingTalkSenderIdentity(
   win: DingTalkBrowserWindow,
   options?: {
     corpId?: string;
+    clientId?: string;
     readyTimeoutMs?: number;
     loadBridgeScript?: (win: DingTalkBrowserWindow) => Promise<void>;
     resolveUserIdFromAuthCode?: (
@@ -367,6 +371,7 @@ export async function resolveDingTalkSenderIdentity(
       const authCode = await requestAuthCode({
         bridge: candidate.bridge,
         corpId: options.corpId,
+        clientId: options.clientId,
       });
 
       if (!authCode) {
