@@ -48,8 +48,7 @@ export async function POST(request: Request) {
   let senderStaffId: string | undefined;
 
   try {
-    senderStaffId =
-      await getIdentityService().resolveUserIdFromAuthCode(authCode);
+    senderStaffId = await getIdentityService().resolveUserIdFromAuthCode(authCode);
   } catch (error) {
     const message =
       error instanceof Error ? error.message : "unknown identity resolution error";

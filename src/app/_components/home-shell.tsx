@@ -93,6 +93,7 @@ async function resolveSenderStaffIdFromAuthCode(authCode: string) {
     },
     body: JSON.stringify({
       authCode,
+      source: "oauth2",
     }),
   });
 
@@ -106,6 +107,7 @@ async function resolveSenderStaffIdFromAuthCode(authCode: string) {
 
   return payload.senderStaffId;
 }
+
 
 async function readStreamEvents(
   response: Response,
@@ -177,7 +179,11 @@ async function readStreamEvents(
   }
 }
 
-export function HomeShell({ dingtalkCorpId, dingtalkClientId }: { dingtalkCorpId?: string; dingtalkClientId?: string }) {
+export function HomeShell({
+  dingtalkClientId,
+}: {
+  dingtalkClientId?: string;
+}) {
   const [sessionId, setSessionId] = useState(createSessionId);
   const [view, setView] = useState<HomeView>("home");
   const [draft, setDraft] = useState("");
@@ -275,7 +281,7 @@ export function HomeShell({ dingtalkCorpId, dingtalkClientId }: { dingtalkCorpId
 
   useEffect(() => {
     void ensureSenderIdentity();
-  }, [dingtalkCorpId]);
+  }, [dingtalkClientId]);
 
   useEffect(() => {
     if (messages.length === 0) {
@@ -681,9 +687,13 @@ export function HomeShell({ dingtalkCorpId, dingtalkClientId }: { dingtalkCorpId
             {" · "}src: {debugSender.identity.source}
             {debugSender.identity.diagnostics ? (
               <>
-                {" · "}cid:{debugSender.identity.diagnostics.clientIdProvided ? "Y" : "N"}
-                {" "}ua:{debugSender.identity.diagnostics.isDingTalkUa ? "Y" : "N"}
-                {" "}oauth2:{debugSender.identity.diagnostics.oauth2CodeFromUrl ? "Y" : "N"}
+                {" · "}cid:
+                {debugSender.identity.diagnostics.clientIdProvided
+                  ? "Y"
+                  : "N"}{" "}
+                ua:{debugSender.identity.diagnostics.isDingTalkUa ? "Y" : "N"}{" "}
+                oauth2:
+                {debugSender.identity.diagnostics.oauth2CodeFromUrl ? "Y" : "N"}
               </>
             ) : null}
           </span>

@@ -54,11 +54,10 @@ function readSenderStaffIdFromQuery(search: string) {
  * ## Why not JSAPI?
  *
  * DingTalk's JSAPI `dd.runtime.permission.requestAuthCode` returns
- * temporary auth codes that are rejected by both the old API
- * (`topapi/v2/user/getuserinfo` → errcode 40078 "nonexistent temp auth
- * code") and the V2 API (`oauth2/userAccessToken` → 400 "不合法的临时授权码").
- * The top-level `dd.requestAuthCode` is not available in all DingTalk
- * client versions. The OAuth2 redirect flow is the only reliable path.
+ * temporary auth codes that are rejected by `topapi/v2/user/getuserinfo`
+ * with errcode 40078 ("nonexistent temp auth code"). This was verified
+ * experimentally — the JSAPI fires and returns a code, but the server-side
+ * exchange always fails. The OAuth2 redirect flow is the only working path.
  *
  * ## Prerequisites
  *
@@ -139,7 +138,7 @@ export async function resolveDingTalkSenderIdentity(
     authUrl.searchParams.set("response_type", "code");
     authUrl.searchParams.set("client_id", options.clientId);
     authUrl.searchParams.set("scope", "openid corpid");
-    authUrl.searchParams.set("prompt", "consent");
+    authUrl.searchParams.set("prompt", "auto");
 
     win.location.href = authUrl.toString();
 
