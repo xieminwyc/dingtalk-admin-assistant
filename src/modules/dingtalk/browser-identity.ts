@@ -71,6 +71,9 @@ export type ResolvedDingTalkSenderIdentity = {
     hasPcUserGet: boolean;
     hasDdRequestAuthCode: boolean;
     hasPcRequestAuthCode: boolean;
+    hasDdTopLevelRequestAuthCode: boolean;
+    hasPcTopLevelRequestAuthCode: boolean;
+    clientIdProvided: boolean;
     scriptLoadAttempted: boolean;
     scriptLoadSucceeded: boolean;
     authCodeAttempted: boolean;
@@ -129,6 +132,9 @@ function collectBridgeDiagnostics(
     hasPcRequestAuthCode: Boolean(
       win.DingTalkPC?.runtime?.permission?.requestAuthCode,
     ),
+    hasDdTopLevelRequestAuthCode: Boolean(win.dd?.requestAuthCode),
+    hasPcTopLevelRequestAuthCode: Boolean(win.DingTalkPC?.requestAuthCode),
+    clientIdProvided: false,
     scriptLoadAttempted: false,
     scriptLoadSucceeded: false,
     authCodeAttempted: false,
@@ -246,19 +252,11 @@ function requestSenderStaffId(input: {
   });
 }
 
-function requestAuthCode(input: {
-  bridge: DingTalkBridge;
-  corpId: string;
-  clientId?: string;
-}) {
+function requestAuthCodeFromBridge(
+  requestCode: DingTalkBridge["requestAuthCode"],
+  options: { corpId: string; clientId?: string },
+) {
   return new Promise<string | undefined>((resolve) => {
-    // Prefer top-level dd.requestAuthCode (JSAPI 3.x, returns OAuth2 code
-    // when clientId is provided) over the legacy runtime.permission path.
-    // The backend V2 fallback handles OAuth2 codes via userAccessToken flow.
-    const requestCode =
-      input.bridge.requestAuthCode ??
-      input.bridge.runtime?.permission?.requestAuthCode;
-
     if (!requestCode) {
       resolve(undefined);
       return;
@@ -266,12 +264,12 @@ function requestAuthCode(input: {
 
     try {
       requestCode({
-        corpId: input.corpId,
-        clientId: input.clientId,
+        corpId: options.corpId,
+        clientId: options.clientId,
         onSuccess(payload) {
           resolve(
-            normalizeSenderStaffId(payload.code) ||
-              normalizeSenderStaffId(payload.authCode),
+            normalizeSenderStaffId(payload.authCode) ||
+              normalizeSenderStaffId(payload.code),
           );
         },
         onFail() {
@@ -282,6 +280,33 @@ function requestAuthCode(input: {
       resolve(undefined);
     }
   });
+}
+
+async function requestAuthCode(input: {
+  bridge: DingTalkBridge;
+  corpId: string;
+  clientId?: string;
+}): Promise<string | undefined> {
+  // 1. Try top-level dd.requestAuthCode with clientId first.
+  //    This is the JSAPI 3.x OAuth2 path that returns an OAuth2 authorization_code
+  //    compatible with the v1.0/oauth2/userAccessToken endpoint.
+  if (input.bridge.requestAuthCode && input.clientId) {
+    const code = await requestAuthCodeFromBridge(
+      input.bridge.requestAuthCode,
+      { corpId: input.corpId, clientId: input.clientId },
+    );
+
+    if (code) {
+      return code;
+    }
+  }
+
+  // 2. Fallback to legacy dd.runtime.permission.requestAuthCode (no clientId).
+  //    Returns old免登授权码 for topapi/v2/user/getuserinfo.
+  return requestAuthCodeFromBridge(
+    input.bridge.runtime?.permission?.requestAuthCode,
+    { corpId: input.corpId },
+  );
 }
 
 export async function resolveDingTalkSenderIdentity(
@@ -303,6 +328,7 @@ export async function resolveDingTalkSenderIdentity(
     normalizeSenderStaffId(urlParams.get("code"));
   let diagnostics = collectBridgeDiagnostics(win, {
     corpIdProvided: Boolean(options?.corpId),
+    clientIdProvided: Boolean(options?.clientId),
     queryHasSenderStaffId: Boolean(senderStaffIdFromQuery),
     oauth2CodeFromUrl: Boolean(oauth2Code),
   });
@@ -338,6 +364,33 @@ export async function resolveDingTalkSenderIdentity(
         diagnostics,
       };
     }
+  }
+
+  // If we're in DingTalk, have a clientId, and no OAuth2 code was in the URL,
+  // redirect to DingTalk OAuth2 immediately — skip JSAPI entirely because
+  // dd.runtime.permission.requestAuthCode returns codes that neither API accepts.
+  if (
+    options?.clientId &&
+    !oauth2Code &&
+    !win.sessionStorage?.getItem(OAUTH2_REDIRECT_ATTEMPTED_KEY)
+  ) {
+    win.sessionStorage?.setItem(OAUTH2_REDIRECT_ATTEMPTED_KEY, "1");
+
+    const redirectUri = win.location.origin + win.location.pathname;
+    const authUrl = new URL("https://login.dingtalk.com/oauth2/auth");
+    authUrl.searchParams.set("redirect_uri", redirectUri);
+    authUrl.searchParams.set("response_type", "code");
+    authUrl.searchParams.set("client_id", options.clientId);
+    authUrl.searchParams.set("scope", "openid corpid");
+    authUrl.searchParams.set("prompt", "consent");
+
+    win.location.href = authUrl.toString();
+
+    return {
+      senderStaffId: undefined,
+      source: "unavailable",
+      diagnostics,
+    };
   }
 
   if (!win.dd && !win.DingTalkPC && diagnostics.isDingTalkUa) {

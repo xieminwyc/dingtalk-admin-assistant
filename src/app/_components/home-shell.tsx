@@ -674,10 +674,20 @@ export function HomeShell({ dingtalkCorpId, dingtalkClientId }: { dingtalkCorpId
               padding: "3px 10px",
               borderRadius: 4,
               letterSpacing: "0.02em",
+              maxWidth: "90vw",
+              wordBreak: "break-all",
             }}
           >
             uid: <strong>{debugSender.identity.senderStaffId ?? "(空)"}</strong>
             {" · "}src: {debugSender.identity.source}
+            {debugSender.identity.diagnostics ? (
+              <>
+                {" · "}dd:{debugSender.identity.diagnostics.hasDdBridge ? "Y" : "N"}
+                {" "}topAuth:{debugSender.identity.diagnostics.hasDdTopLevelRequestAuthCode ? "Y" : "N"}
+                {" "}legAuth:{debugSender.identity.diagnostics.hasDdRequestAuthCode ? "Y" : "N"}
+                {" "}cid:{debugSender.identity.diagnostics.clientIdProvided ? "Y" : "N"}
+              </>
+            ) : null}
           </span>
         )}
       </div>
