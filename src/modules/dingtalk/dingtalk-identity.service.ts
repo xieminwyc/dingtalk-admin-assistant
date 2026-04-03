@@ -139,9 +139,11 @@ export function createDingTalkIdentityApi(
       );
 
       if (!response.ok) {
+        const errorBody = await response.text().catch(() => "");
         console.warn(
           "[identity-api] getUserAccessTokenV2 http failed:",
           response.status,
+          errorBody,
         );
         return undefined;
       }
