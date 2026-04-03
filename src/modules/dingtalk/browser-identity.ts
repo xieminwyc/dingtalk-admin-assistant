@@ -440,11 +440,11 @@ export async function resolveDingTalkSenderIdentity(
     diagnostics.isDingTalkUa &&
     !oauth2Code // Don't redirect again if we already tried an OAuth2 code
   ) {
-    const redirectUri = encodeURIComponent(win.location.origin + win.location.pathname);
+    const redirectUri = encodeURIComponent(win.location.origin);
     const authUrl =
       `https://login.dingtalk.com/oauth2/auth?redirect_uri=${redirectUri}` +
       `&client_id=${encodeURIComponent(options.clientId)}` +
-      `&response_type=code&scope=openid&prompt=consent` +
+      `&response_type=code&scope=openid%20corpid&prompt=consent` +
       `&state=dingtalk-identity`;
     win.location.href = authUrl;
     // Return unavailable — the page will redirect before this is used

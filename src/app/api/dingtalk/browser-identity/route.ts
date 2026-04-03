@@ -14,6 +14,8 @@ function getIdentityService() {
   if (!identityService) {
     const env = parseAppEnv();
 
+    console.info("[browser-identity] using clientId:", env.dingtalkClientId?.slice(0, 8) + "...");
+
     identityService = createDingTalkIdentityService({
       clientId: env.dingtalkClientId,
       clientSecret: env.dingtalkClientSecret,
