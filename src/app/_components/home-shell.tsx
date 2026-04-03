@@ -4,6 +4,10 @@ import type { ChangeEvent, KeyboardEvent } from "react";
 import { useEffect, useRef, useState } from "react";
 
 import type { EntryMode } from "@/modules/assistant/entry-mode.types";
+import {
+  resolveDingTalkSenderIdentity,
+  type ResolvedDingTalkSenderIdentity,
+} from "@/modules/dingtalk/browser-identity";
 
 import {
   homeEntryCards,
@@ -81,6 +85,28 @@ async function readJsonReply(response: Response) {
   return (await response.json()) as WebhookReply;
 }
 
+async function resolveSenderStaffIdFromAuthCode(authCode: string) {
+  const response = await fetch("/api/dingtalk/browser-identity", {
+    method: "POST",
+    headers: {
+      "Content-Type": "application/json",
+    },
+    body: JSON.stringify({
+      authCode,
+    }),
+  });
+
+  if (!response.ok) {
+    return undefined;
+  }
+
+  const payload = (await response.json()) as {
+    senderStaffId?: string;
+  };
+
+  return payload.senderStaffId;
+}
+
 async function readStreamEvents(
   response: Response,
   handlers: {
@@ -151,7 +177,7 @@ async function readStreamEvents(
   }
 }
 
-export function HomeShell() {
+export function HomeShell({ dingtalkCorpId }: { dingtalkCorpId?: string }) {
   const [sessionId, setSessionId] = useState(createSessionId);
   const [view, setView] = useState<HomeView>("home");
   const [draft, setDraft] = useState("");
@@ -165,7 +191,17 @@ export function HomeShell() {
   const [isHistoryOpen, setIsHistoryOpen] = useState(false);
   const [isSending, setIsSending] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [debugSender, setDebugSender] = useState<
+    | { status: "pending" }
+    | { status: "ok"; identity: ResolvedDingTalkSenderIdentity }
+    | { status: "error"; message: string }
+  >({ status: "pending" });
   const textareaRef = useRef<HTMLTextAreaElement | null>(null);
+  const senderIdentityRef = useRef<ResolvedDingTalkSenderIdentity>({
+    source: "unavailable",
+  });
+  const senderIdentityPromiseRef =
+    useRef<Promise<ResolvedDingTalkSenderIdentity> | null>(null);
 
   const activeCard = activeEntryMode
     ? homeEntryCards.find((card) => card.entryMode === activeEntryMode)
@@ -208,6 +244,34 @@ export function HomeShell() {
       // Ignore malformed local data and fall back to a fresh session.
     }
   }, []);
+
+  function ensureSenderIdentity() {
+    if (!senderIdentityPromiseRef.current) {
+      senderIdentityPromiseRef.current = resolveDingTalkSenderIdentity(window, {
+        corpId: dingtalkCorpId,
+        resolveUserIdFromAuthCode: resolveSenderStaffIdFromAuthCode,
+      }).then((identity) => {
+        senderIdentityRef.current = identity;
+        setDebugSender({ status: "ok", identity });
+        console.info("[home] resolved dingtalk sender", {
+          senderStaffId: identity.senderStaffId,
+          source: identity.source,
+          diagnostics: identity.diagnostics,
+        });
+        return identity;
+      }).catch((err: unknown) => {
+        const message = err instanceof Error ? err.message : String(err);
+        setDebugSender({ status: "error", message });
+        return { source: "unavailable" } as ResolvedDingTalkSenderIdentity;
+      });
+    }
+
+    return senderIdentityPromiseRef.current;
+  }
+
+  useEffect(() => {
+    void ensureSenderIdentity();
+  }, [dingtalkCorpId]);
 
   useEffect(() => {
     if (messages.length === 0) {
@@ -316,6 +380,16 @@ export function HomeShell() {
     }
 
     try {
+      const senderIdentity =
+        senderIdentityRef.current.senderStaffId
+          ? senderIdentityRef.current
+          : await ensureSenderIdentity()?.catch(
+              (): ResolvedDingTalkSenderIdentity => ({
+                senderStaffId: undefined,
+                source: "unavailable",
+              }),
+            );
+
       const response = await fetch("/api/dingtalk/webhook/stream", {
         method: "POST",
         headers: {
@@ -324,6 +398,9 @@ export function HomeShell() {
         body: JSON.stringify({
           sessionId,
           entryMode: resolvedEntryMode,
+          senderStaffId: senderIdentity?.senderStaffId,
+          senderSource: senderIdentity?.source,
+          senderDiagnostics: senderIdentity?.diagnostics,
           text: {
             content: message,
           },
@@ -542,6 +619,49 @@ export function HomeShell() {
           </span>
         </div>
       </header>
+
+      {debugSender.status === "pending" ? (
+        <div
+          style={{
+            background: "rgba(0,0,0,0.5)",
+            color: "#ccc",
+            fontSize: 11,
+            padding: "2px 8px",
+            textAlign: "center",
+          }}
+        >
+          身份解析中…
+        </div>
+      ) : debugSender.status === "error" ? (
+        <div
+          style={{
+            background: "rgba(180,0,0,0.8)",
+            color: "#fff",
+            fontSize: 11,
+            padding: "2px 8px",
+            textAlign: "center",
+          }}
+        >
+          uid 解析失败: {debugSender.message}
+        </div>
+      ) : (
+        <div
+          style={{
+            background: "rgba(0,0,0,0.6)",
+            color: "#fff",
+            fontSize: 11,
+            padding: "2px 8px",
+            textAlign: "center",
+            letterSpacing: "0.02em",
+          }}
+        >
+          uid:{" "}
+          <strong>
+            {debugSender.identity.senderStaffId ?? "(空)"}
+          </strong>
+          {" · "}src: {debugSender.identity.source}
+        </div>
+      )}
 
       <HistoryDrawer
         isOpen={isHistoryOpen}
