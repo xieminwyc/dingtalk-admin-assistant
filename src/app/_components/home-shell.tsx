@@ -250,7 +250,6 @@ export function HomeShell({ dingtalkCorpId, dingtalkClientId }: { dingtalkCorpId
   function ensureSenderIdentity() {
     if (!senderIdentityPromiseRef.current) {
       senderIdentityPromiseRef.current = resolveDingTalkSenderIdentity(window, {
-        corpId: dingtalkCorpId,
         clientId: dingtalkClientId,
         resolveUserIdFromAuthCode: resolveSenderStaffIdFromAuthCode,
       })
@@ -682,10 +681,9 @@ export function HomeShell({ dingtalkCorpId, dingtalkClientId }: { dingtalkCorpId
             {" · "}src: {debugSender.identity.source}
             {debugSender.identity.diagnostics ? (
               <>
-                {" · "}dd:{debugSender.identity.diagnostics.hasDdBridge ? "Y" : "N"}
-                {" "}topAuth:{debugSender.identity.diagnostics.hasDdTopLevelRequestAuthCode ? "Y" : "N"}
-                {" "}legAuth:{debugSender.identity.diagnostics.hasDdRequestAuthCode ? "Y" : "N"}
-                {" "}cid:{debugSender.identity.diagnostics.clientIdProvided ? "Y" : "N"}
+                {" · "}cid:{debugSender.identity.diagnostics.clientIdProvided ? "Y" : "N"}
+                {" "}ua:{debugSender.identity.diagnostics.isDingTalkUa ? "Y" : "N"}
+                {" "}oauth2:{debugSender.identity.diagnostics.oauth2CodeFromUrl ? "Y" : "N"}
               </>
             ) : null}
           </span>

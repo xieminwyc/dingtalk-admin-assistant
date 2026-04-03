@@ -4,14 +4,6 @@ type DingTalkOldAccessTokenResponse = {
   errmsg?: string;
 };
 
-type DingTalkAuthCodeResponse = {
-  result?: {
-    userid?: string;
-  };
-  errcode?: number;
-  errmsg?: string;
-};
-
 type DingTalkOAuth2TokenResponse = {
   accessToken?: string;
   refreshToken?: string;
@@ -34,10 +26,6 @@ type DingTalkGetByUnionIdResponse = {
 
 type DingTalkIdentityApiPort = {
   getAccessToken(appKey: string, appSecret: string): Promise<string>;
-  getUserIdByAuthCode(
-    accessToken: string,
-    authCode: string,
-  ): Promise<string | undefined>;
   getUserAccessTokenV2(
     clientId: string,
     clientSecret: string,
@@ -55,8 +43,8 @@ export function createDingTalkIdentityApi(
 ): DingTalkIdentityApiPort {
   return {
     async getAccessToken(appKey, appSecret) {
-      // Use the OLD gettoken endpoint — its access_token is required by
-      // the old topapi/v2/user/getuserinfo endpoint.
+      // The old oapi.dingtalk.com/gettoken endpoint returns an access_token
+      // required by topapi/user/getbyunionid (the last step of the V2 flow).
       const url = new URL("https://oapi.dingtalk.com/gettoken");
       url.searchParams.set("appkey", appKey);
       url.searchParams.set("appsecret", appSecret);
@@ -80,42 +68,6 @@ export function createDingTalkIdentityApi(
       }
 
       return data.access_token;
-    },
-
-    async getUserIdByAuthCode(accessToken, authCode) {
-      console.info("[identity-api] getUserIdByAuthCode", {
-        authCodeLength: authCode.length,
-        authCodePrefix: authCode.slice(0, 8),
-      });
-
-      const response = await fetchImpl(
-        `https://oapi.dingtalk.com/topapi/v2/user/getuserinfo?access_token=${encodeURIComponent(accessToken)}`,
-        {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ code: authCode }),
-        },
-      );
-
-      if (!response.ok) {
-        throw new Error(`getUserIdByAuthCode failed: ${response.status}`);
-      }
-
-      const data = (await response.json()) as DingTalkAuthCodeResponse;
-
-      console.info("[identity-api] getUserIdByAuthCode response", {
-        errcode: data.errcode,
-        errmsg: data.errmsg,
-        hasUserid: Boolean(data.result?.userid),
-      });
-
-      if (data.errcode && data.errcode !== 0) {
-        throw new Error(
-          `getUserIdByAuthCode business error: errcode=${data.errcode}, errmsg=${data.errmsg ?? "unknown"}`,
-        );
-      }
-
-      return data.result?.userid;
     },
 
     async getUserAccessTokenV2(clientId, clientSecret, code) {
@@ -220,6 +172,19 @@ export function createDingTalkIdentityApi(
   };
 }
 
+/**
+ * Resolves a DingTalk userId from an OAuth2 authorization code.
+ *
+ * Flow: code → userAccessToken → unionId → userId
+ *
+ * 1. Exchange the OAuth2 `code` (from `login.dingtalk.com/oauth2/auth`
+ *    redirect) for a user-level access token via
+ *    `api.dingtalk.com/v1.0/oauth2/userAccessToken`.
+ * 2. Fetch the user's unionId via `api.dingtalk.com/v1.0/contact/users/me`.
+ * 3. Resolve the unionId to a corp-scoped userId via
+ *    `oapi.dingtalk.com/topapi/user/getbyunionid` (requires the app's
+ *    old-style access_token from `oapi.dingtalk.com/gettoken`).
+ */
 export function createDingTalkIdentityService(input: {
   clientId: string;
   clientSecret: string;
@@ -229,39 +194,28 @@ export function createDingTalkIdentityService(input: {
 
   return {
     async resolveUserIdFromAuthCode(authCode: string) {
-      // 1. Try OAuth2 v2 path first (works with codes from login.dingtalk.com redirect).
-      //    Exchange code → userAccessToken → unionId → userId.
-      const userAccessToken = await api
-        .getUserAccessTokenV2(input.clientId, input.clientSecret, authCode)
-        .catch(() => undefined);
+      const userAccessToken = await api.getUserAccessTokenV2(
+        input.clientId,
+        input.clientSecret,
+        authCode,
+      );
 
-      if (userAccessToken) {
-        const unionId = await api
-          .getUserUnionIdV2(userAccessToken)
-          .catch(() => undefined);
-
-        if (unionId) {
-          const accessToken = await api.getAccessToken(
-            input.clientId,
-            input.clientSecret,
-          );
-          const userId = await api
-            .getUserIdByUnionId(accessToken, unionId)
-            .catch(() => undefined);
-
-          if (userId) {
-            return userId;
-          }
-        }
+      if (!userAccessToken) {
+        return undefined;
       }
 
-      // 2. Fallback: old endpoint (topapi/v2/user/getuserinfo) for legacy JSAPI codes.
+      const unionId = await api.getUserUnionIdV2(userAccessToken);
+
+      if (!unionId) {
+        return undefined;
+      }
+
       const accessToken = await api.getAccessToken(
         input.clientId,
         input.clientSecret,
       );
 
-      return api.getUserIdByAuthCode(accessToken, authCode);
+      return api.getUserIdByUnionId(accessToken, unionId);
     },
   };
 }

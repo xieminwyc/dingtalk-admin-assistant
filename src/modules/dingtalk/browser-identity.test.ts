@@ -12,145 +12,102 @@ describe("resolveDingTalkSenderIdentity", () => {
 
     expect(result).toEqual(
       expect.objectContaining({
-      senderStaffId: "0215084121561138029",
-      source: "query",
+        senderStaffId: "0215084121561138029",
+        source: "query",
       }),
     );
   });
 
-  it("normalizes the current user id from dd.biz.user.get", async () => {
-    const ready = vi.fn((callback: () => void) => callback());
-    const get = vi.fn(
-      ({
-        onSuccess,
-      }: {
-        onSuccess?: (payload: { emplId?: string }) => void;
-      }) => onSuccess?.({ emplId: "0215084121561138029" }),
-    );
+  it("resolves userId from OAuth2 redirect code in URL", async () => {
+    const resolveUserIdFromAuthCode = vi
+      .fn()
+      .mockResolvedValue("0215084121561138029");
 
-    const result = await resolveDingTalkSenderIdentity({
+    const win = {
       location: {
-        search: "",
+        search: "?authCode=oauth2-test-code",
+        href: "https://example.com/?authCode=oauth2-test-code",
+        origin: "https://example.com",
+        pathname: "/",
       },
-      dd: {
-        ready,
-        biz: {
-          user: {
-            get,
-          },
-        },
+      history: {
+        replaceState: vi.fn(),
       },
-    } as Window);
-
-    expect(ready).toHaveBeenCalledTimes(1);
-    expect(get).toHaveBeenCalledTimes(1);
-    expect(result).toEqual(
-      expect.objectContaining({
-      senderStaffId: "0215084121561138029",
-      source: "dd.biz.user.get",
-      }),
-    );
-  });
-
-  it("falls back to requestAuthCode when biz.user.get is unavailable", async () => {
-    const ready = vi.fn((callback: () => void) => callback());
-    const requestAuthCode = vi.fn(
-      ({
-        onSuccess,
-      }: {
-        onSuccess?: (payload: { code?: string }) => void;
-      }) => onSuccess?.({ code: "auth-code-1" }),
-    );
-    const resolveUserIdFromAuthCode = vi.fn(async (authCode: string) =>
-      authCode === "auth-code-1" ? "0215084121561138029" : undefined,
-    );
-
-    const result = await resolveDingTalkSenderIdentity(
-      {
-        location: {
-          search: "",
-        },
-        dd: {
-          ready,
-          runtime: {
-            permission: {
-              requestAuthCode,
-            },
-          },
-        },
-      } as Window,
-      {
-        corpId: "dingcorp-test",
-        resolveUserIdFromAuthCode,
+      sessionStorage: {
+        getItem: vi.fn().mockReturnValue(null),
+        setItem: vi.fn(),
+        removeItem: vi.fn(),
       },
-    );
+    } as unknown as Window;
 
-    expect(ready).toHaveBeenCalledTimes(1);
-    expect(requestAuthCode).toHaveBeenCalledWith(
-      expect.objectContaining({
-        corpId: "dingcorp-test",
-      }),
-    );
-    expect(resolveUserIdFromAuthCode).toHaveBeenCalledWith("auth-code-1");
-    expect(result).toEqual(
-      expect.objectContaining({
-      senderStaffId: "0215084121561138029",
-      source: "dd.runtime.permission.requestAuthCode",
-      }),
-    );
-  });
-
-  it("loads the DingTalk JSAPI bridge before requesting authCode when bridge is absent", async () => {
-    const ready = vi.fn((callback: () => void) => callback());
-    const requestAuthCode = vi.fn(
-      ({
-        onSuccess,
-      }: {
-        onSuccess?: (payload: { code?: string }) => void;
-      }) => onSuccess?.({ code: "auth-code-2" }),
-    );
-    const loadBridgeScript = vi.fn(async (win: Window) => {
-      Object.assign(win, {
-        dd: {
-          ready,
-          runtime: {
-            permission: {
-              requestAuthCode,
-            },
-          },
-        },
-      });
+    const result = await resolveDingTalkSenderIdentity(win, {
+      clientId: "ding-client-id",
+      resolveUserIdFromAuthCode,
     });
-    const resolveUserIdFromAuthCode = vi.fn(async () => "0215084121561138030");
 
-    const result = await resolveDingTalkSenderIdentity(
-      {
-        location: {
-          search: "",
-        },
-        navigator: {
-          userAgent: "DingTalk/7.6.10",
-        },
-      } as Window,
-      {
-        corpId: "dingcorp-test",
-        loadBridgeScript,
-        resolveUserIdFromAuthCode,
-      },
-    );
-
-    expect(loadBridgeScript).toHaveBeenCalledTimes(1);
-    expect(requestAuthCode).toHaveBeenCalledTimes(1);
+    expect(resolveUserIdFromAuthCode).toHaveBeenCalledWith("oauth2-test-code");
     expect(result).toEqual(
       expect.objectContaining({
-        senderStaffId: "0215084121561138030",
-        source: "dd.runtime.permission.requestAuthCode",
+        senderStaffId: "0215084121561138029",
+        source: "oauth2-redirect",
         diagnostics: expect.objectContaining({
-          isDingTalkUa: true,
-          scriptLoadAttempted: true,
-          scriptLoadSucceeded: true,
+          oauth2CodeFromUrl: true,
+          authCodeResolved: true,
         }),
       }),
     );
+  });
+
+  it("redirects to DingTalk OAuth2 when no code is present and clientId is provided", async () => {
+    const win = {
+      location: {
+        search: "",
+        href: "https://example.com/",
+        origin: "https://example.com",
+        pathname: "/",
+      },
+      navigator: { userAgent: "DingTalk/7.6.10" },
+      sessionStorage: {
+        getItem: vi.fn().mockReturnValue(null),
+        setItem: vi.fn(),
+      },
+    } as unknown as Window;
+
+    const result = await resolveDingTalkSenderIdentity(win, {
+      clientId: "ding-client-id",
+      resolveUserIdFromAuthCode: vi.fn(),
+    });
+
+    expect(win.sessionStorage?.setItem).toHaveBeenCalledWith(
+      "dt-oauth2-redirect-attempted",
+      "1",
+    );
+    expect(win.location.href).toContain("login.dingtalk.com/oauth2/auth");
+    expect(win.location.href).toContain("client_id=ding-client-id");
+    expect(result.source).toBe("unavailable");
+  });
+
+  it("does not redirect again when sessionStorage guard is set", async () => {
+    const win = {
+      location: {
+        search: "",
+        href: "https://example.com/",
+        origin: "https://example.com",
+        pathname: "/",
+      },
+      navigator: { userAgent: "DingTalk/7.6.10" },
+      sessionStorage: {
+        getItem: vi.fn().mockReturnValue("1"),
+        setItem: vi.fn(),
+      },
+    } as unknown as Window;
+
+    const result = await resolveDingTalkSenderIdentity(win, {
+      clientId: "ding-client-id",
+    });
+
+    expect(win.sessionStorage?.setItem).not.toHaveBeenCalled();
+    expect(win.location.href).toBe("https://example.com/");
+    expect(result.source).toBe("unavailable");
   });
 });
