@@ -141,7 +141,7 @@ describe("POST /api/dingtalk/webhook", () => {
 
     expect(response.status).toBe(200);
     expect(data.reply).toContain("结论");
-    expect(data.reply).toContain("年假天数按司龄计算");
+    expect(data.reply).toContain("满 1 年不满 10 年为 5 天");
   });
 
   it("can return debug payloads for the web debug page", async () => {
@@ -178,11 +178,11 @@ describe("POST /api/dingtalk/webhook", () => {
     };
 
     expect(response.status).toBe(200);
-    expect(data.reply).toContain("年假天数按司龄计算");
+    expect(data.reply).toContain("满 1 年不满 10 年为 5 天");
     expect(data.debug?.intent?.mode).toBe("internal_knowledge");
     expect(data.debug?.intent?.knowledgeHint).toBe("年假规则");
     expect(data.debug?.resolution?.kind).toBe("knowledge");
-    expect(data.debug?.usedResponseGenerator).toBe(true);
+    expect(data.debug?.usedResponseGenerator).toBe(false);
     expect(data.debug).toEqual(
       expect.objectContaining({
         intent: expect.any(Object),
@@ -342,6 +342,206 @@ describe("POST /api/dingtalk/webhook", () => {
       query: "帮我打开 OA",
       sessionId: "home-1",
       entryMode: "task"
+    });
+
+    vi.doUnmock("@/modules/assistant/create-assistant-runtime");
+  });
+
+  it("returns citations and images for knowledge replies when provided by the assistant runtime", async () => {
+    vi.resetModules();
+
+    const reply = vi.fn();
+    const replyWithDebug = vi.fn().mockResolvedValue({
+      reply: "公司的报销流程如下。",
+      conversationContext: [],
+      intent: {
+        mode: "internal_knowledge",
+        intentConfidence: 0.92,
+        needKnowledge: true,
+        needTaskResolution: false,
+        toolPlan: "knowledge",
+        topicShift: false,
+        intent: "knowledge_query",
+        source: "model",
+      },
+      resolution: {
+        kind: "knowledge",
+        intent: "knowledge_query",
+        title: "报销流程",
+        answer: "公司的报销流程如下。",
+        source: "rag",
+        citations: [
+          {
+            documentTitle: "钉钉文档 · xxx",
+            sourceUrl: "https://alidocs.dingtalk.com/i/nodes/xxx",
+          },
+        ],
+        images: [
+          {
+            name: "图1",
+            data: "iVBORw0KGgoAAAANSUhEUgAAAAUA",
+            preview: "报销流程示意图...",
+          },
+        ],
+      },
+      usedResponseGenerator: false,
+    });
+
+    vi.doMock("@/modules/assistant/create-assistant-runtime", () => ({
+      createAssistantRuntime: () => ({
+        assistant: {
+          reply,
+          replyWithDebug,
+        },
+      }),
+    }));
+
+    const { POST: mockedPost } = await import("./route");
+    const request = new Request("http://localhost/api/dingtalk/webhook", {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+      },
+      body: JSON.stringify({
+        sessionId: "home-knowledge-1",
+        text: {
+          content: "报销流程是什么",
+        },
+      }),
+    });
+
+    const response = await mockedPost(request);
+    const data = (await response.json()) as {
+      citations?: Array<{ documentTitle: string; sourceUrl?: string }>;
+      images?: Array<{ name: string; preview?: string; data?: string }>;
+      kind?: string;
+    };
+
+    expect(response.status).toBe(200);
+    expect(data.kind).toBe("knowledge");
+    expect(data.citations).toEqual([
+      {
+        documentTitle: "钉钉文档 · xxx",
+        sourceUrl: "https://alidocs.dingtalk.com/i/nodes/xxx",
+      },
+    ]);
+    expect(data.images).toEqual([
+      {
+        name: "图1",
+        data: "iVBORw0KGgoAAAANSUhEUgAAAAUA",
+        preview: "报销流程示意图...",
+      },
+    ]);
+
+    vi.doUnmock("@/modules/assistant/create-assistant-runtime");
+  });
+
+  it("includes the raw external rag ask response in debug payloads when available", async () => {
+    vi.resetModules();
+
+    const reply = vi.fn();
+    const replyWithDebug = vi.fn().mockResolvedValue({
+      reply: "公司的报销流程如下。",
+      conversationContext: [],
+      intent: {
+        mode: "internal_knowledge",
+        intentConfidence: 0.92,
+        needKnowledge: true,
+        needTaskResolution: false,
+        toolPlan: "knowledge",
+        topicShift: false,
+        intent: "knowledge_query",
+        source: "model",
+      },
+      resolution: {
+        kind: "knowledge",
+        intent: "knowledge_query",
+        title: "钉钉文档 · ydxXB52LJqe7j5PATQOZGldZJqjMp697",
+        answer: "公司的报销流程如下。",
+        source: "rag",
+        citations: [
+          {
+            documentTitle: "钉钉文档 · ydxXB52LJqe7j5PATQOZGldZJqjMp697",
+            sourceUrl: "https://alidocs.dingtalk.com/i/nodes/ydxXB52LJqe7j5PATQOZGldZJqjMp697",
+          },
+        ],
+        providerMeta: {
+          ragAskResponse: {
+            sessionId: "rag-session-9",
+            answer: "公司的报销流程如下。",
+            source: [
+              "https://alidocs.dingtalk.com/i/nodes/ydxXB52LJqe7j5PATQOZGldZJqjMp697",
+            ],
+            pics: [
+              {
+                name: "图1",
+                data: "base64-image",
+                preview: "报销流程示意图",
+              },
+            ],
+          },
+        },
+      },
+      usedResponseGenerator: false,
+    });
+
+    vi.doMock("@/modules/assistant/create-assistant-runtime", () => ({
+      createAssistantRuntime: () => ({
+        assistant: {
+          reply,
+          replyWithDebug,
+        },
+      }),
+    }));
+
+    const { POST: mockedPost } = await import("./route");
+    const request = new Request("http://localhost/api/dingtalk/webhook", {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+      },
+      body: JSON.stringify({
+        debug: true,
+        sessionId: "home-knowledge-debug-1",
+        text: {
+          content: "报销流程是什么",
+        },
+      }),
+    });
+
+    const response = await mockedPost(request);
+    const data = (await response.json()) as {
+      debug?: {
+        externalRag?: {
+          askResponse?: {
+            sessionId?: string;
+            answer?: string;
+            source?: string[];
+          };
+        };
+      };
+      meta?: {
+        title?: string;
+      };
+    };
+
+    expect(response.status).toBe(200);
+    expect(data.meta?.title).toBe(
+      "钉钉文档 · ydxXB52LJqe7j5PATQOZGldZJqjMp697",
+    );
+    expect(data.debug?.externalRag?.askResponse).toEqual({
+      sessionId: "rag-session-9",
+      answer: "公司的报销流程如下。",
+      source: [
+        "https://alidocs.dingtalk.com/i/nodes/ydxXB52LJqe7j5PATQOZGldZJqjMp697",
+      ],
+      pics: [
+        {
+          name: "图1",
+          data: "base64-image",
+          preview: "报销流程示意图",
+        },
+      ],
     });
 
     vi.doUnmock("@/modules/assistant/create-assistant-runtime");

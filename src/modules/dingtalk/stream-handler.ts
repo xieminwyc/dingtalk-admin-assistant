@@ -1,3 +1,9 @@
+import type { AssistantDebugReply } from "@/modules/assistant/assistant.service";
+import type {
+  KnowledgeCitation,
+  KnowledgeImage,
+} from "@/modules/knowledge/retriever.types";
+
 type StreamTextPayload = {
   text?: {
     content?: string;
@@ -13,10 +19,20 @@ type StreamMessagePayload = StreamTextPayload & {
 
 type AssistantPort = {
   reply(input: string | { query: string; sessionId?: string; userId?: string }): Promise<string>;
+  replyWithDebug?: (
+    input: string | { query: string; sessionId?: string; userId?: string }
+  ) => Promise<AssistantDebugReply>;
 };
 
 type StreamReplyPort = {
-  replyMarkdown(sessionWebhook: string, text: string): Promise<void>;
+  replyMarkdown(
+    sessionWebhook: string,
+    text: string,
+    options?: {
+      citations?: KnowledgeCitation[];
+      images?: KnowledgeImage[];
+    },
+  ): Promise<void>;
 };
 
 type StreamHandlerResult =
@@ -63,12 +79,34 @@ export function createDingTalkStreamHandler(input: {
     }
 
     // sessionWebhook 是只用于一次性回复的钉钉接口，而 conversationId 才是真实的会话上下文 ID
-    const reply = await input.assistant.reply({
+    const assistantInput = {
       query: message,
       sessionId: payload.conversationId || payload.sessionWebhook,
       userId: payload.senderStaffId || payload.senderId,
-    });
-    await input.replier.replyMarkdown(payload.sessionWebhook, reply);
+    };
+    let reply: string;
+    let citations: KnowledgeCitation[] | undefined;
+    let images: KnowledgeImage[] | undefined;
+
+    if (input.assistant.replyWithDebug) {
+      const debugResult = await input.assistant.replyWithDebug(assistantInput);
+      reply = debugResult.reply;
+      if (debugResult.resolution.kind === "knowledge") {
+        citations = debugResult.resolution.citations;
+        images = debugResult.resolution.images;
+      }
+    } else {
+      reply = await input.assistant.reply(assistantInput);
+    }
+
+    if ((citations && citations.length > 0) || (images && images.length > 0)) {
+      await input.replier.replyMarkdown(payload.sessionWebhook, reply, {
+        citations,
+        images,
+      });
+    } else {
+      await input.replier.replyMarkdown(payload.sessionWebhook, reply);
+    }
 
     return {
       success: true,

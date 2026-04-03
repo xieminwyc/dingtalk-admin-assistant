@@ -7,6 +7,11 @@ import {
   buildModelErrorDecision,
   type ModelIntentClassifier
 } from "./model-intent-classifier";
+import {
+  buildKnowledgeHint,
+  shouldReclassifyOpenResponseAsKnowledge,
+  shouldReclassifyTaskAsKnowledge,
+} from "./company-knowledge-heuristics";
 
 export type IntentAnalysis = AssistantDecision & {
   // 这层 source 只用于调试与测试，方便区分“真实模型决策”还是“轻量降级”。
@@ -83,6 +88,41 @@ function buildAnalysisResult(
   };
 }
 
+function normalizeDecision(
+  input: AnalyzeIntentInput,
+  decision: AssistantDecision,
+): AssistantDecision {
+  if (shouldReclassifyTaskAsKnowledge(input.query, decision)) {
+    const { taskHint: _taskHint, ...rest } = decision;
+    const knowledgeHint = buildKnowledgeHint(input.query);
+
+    return {
+      ...rest,
+      mode: "internal_knowledge",
+      needKnowledge: true,
+      needTaskResolution: false,
+      toolPlan: "knowledge",
+      knowledgeHint,
+    };
+  }
+
+  if (shouldReclassifyOpenResponseAsKnowledge(input, decision)) {
+    const { reply: _reply, ...rest } = decision;
+    const knowledgeHint = buildKnowledgeHint(input.query);
+
+    return {
+      ...rest,
+      mode: "internal_knowledge",
+      needKnowledge: true,
+      needTaskResolution: false,
+      toolPlan: "knowledge",
+      knowledgeHint,
+    };
+  }
+
+  return decision;
+}
+
 export function createIntentAnalyzer(
   input: CreateIntentAnalyzerInput = {}
 ): IntentAnalyzer {
@@ -109,7 +149,10 @@ export function createIntentAnalyzer(
           )
         );
 
-        const decision = await input.modelClassifier.classify(normalizedInput);
+        const decision = normalizeDecision(
+          normalizedInput,
+          await input.modelClassifier.classify(normalizedInput),
+        );
 
         console.info(
           formatIntentLog(

@@ -5,19 +5,34 @@ import {
   type DWClientDownStream,
 } from "dingtalk-stream";
 
+import type { AssistantDebugReply } from "@/modules/assistant/assistant.service";
 import { createAssistantRuntime } from "@/modules/assistant/create-assistant-runtime";
+import type {
+  KnowledgeCitation,
+  KnowledgeImage,
+} from "@/modules/knowledge/retriever.types";
 import { createDingTalkStreamHandler } from "./stream-handler";
 
 // assistant 的最小能力约束：给它一句用户问题，它返回一句最终回复。
 // 这里故意只依赖 reply，而不关心底层是 FAQ、数据库还是外部模型。
 type AssistantPort = {
   reply(input: string | { query: string; sessionId?: string }): Promise<string>;
+  replyWithDebug?: (
+    input: string | { query: string; sessionId?: string; userId?: string }
+  ) => Promise<AssistantDebugReply>;
 };
 
 // 回消息的抽象端口。
 // 当前实现是通过钉钉下发的 sessionWebhook 回发文本消息。
 type StreamReplyPort = {
-  replyMarkdown(sessionWebhook: string, text: string): Promise<void>;
+  replyMarkdown(
+    sessionWebhook: string,
+    text: string,
+    options?: {
+      citations?: KnowledgeCitation[];
+      images?: KnowledgeImage[];
+    },
+  ): Promise<void>;
 };
 
 // Stream SDK 提供的 ACK 能力抽象。
@@ -39,22 +54,235 @@ type StreamRobotMessage = {
   senderNick?: string;
 };
 
+function stripImagePlaceholders(text: string): string {
+  return text.replace(/\{\{([^}]+)\}\}/g, "$1");
+}
+
+function stripInlineReferenceFooter(text: string): string {
+  return text
+    .replace(/\n\s*\[依据\]:[^\n]*/g, "")
+    .replace(/\n{3,}/g, "\n\n")
+    .trim();
+}
+
+function buildMarkdownReply(input: {
+  text: string;
+  citations?: KnowledgeCitation[];
+  uploadedImages: Array<{ name: string; mediaId: string; preview?: string }>;
+}) {
+  let markdownText = stripInlineReferenceFooter(input.text);
+
+  for (const image of input.uploadedImages) {
+    markdownText = markdownText.replace(
+      `{{${image.name}}}`,
+      image.name,
+    );
+  }
+
+  const appendix = input.uploadedImages
+    .map((image) =>
+      [
+        `### ${image.name}`,
+        `![${image.name}](${image.mediaId})`,
+        image.preview ? `> ${image.preview}` : undefined,
+      ]
+        .filter(Boolean)
+        .join("\n\n"),
+    )
+    .join("\n\n");
+
+  const citationSection =
+    input.citations && input.citations.length > 0
+      ? [
+          "### 依据来源",
+          input.citations
+            .map((citation) =>
+              citation.sourceUrl
+                ? `- [${citation.documentTitle}](${citation.sourceUrl})`
+                : `- ${citation.documentTitle}`,
+            )
+            .join("\n"),
+        ].join("\n\n")
+      : "";
+
+  return {
+    title: stripImagePlaceholders(markdownText),
+    text: [markdownText, appendix, citationSection].filter(Boolean).join("\n\n"),
+  };
+}
+
+async function getAppAccessToken(input: {
+  fetchImpl: typeof fetch;
+  clientId: string;
+  clientSecret: string;
+}) {
+  const response = await input.fetchImpl(
+    "https://api.dingtalk.com/v1.0/oauth2/accessToken",
+    {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+      },
+      body: JSON.stringify({
+        appKey: input.clientId,
+        appSecret: input.clientSecret,
+      }),
+    },
+  );
+
+  if (!response.ok) {
+    throw new Error(`access token request failed with ${response.status}`);
+  }
+
+  const data = (await response.json()) as {
+    accessToken?: string;
+    access_token?: string;
+  };
+  const accessToken = data.accessToken ?? data.access_token;
+
+  if (!accessToken) {
+    throw new Error("missing access token");
+  }
+
+  return accessToken;
+}
+
+async function uploadImageMedia(input: {
+  fetchImpl: typeof fetch;
+  accessToken: string;
+  image: KnowledgeImage;
+}) {
+  if (!input.image.data) {
+    throw new Error("missing image data");
+  }
+
+  const formData = new FormData();
+  const bytes = Uint8Array.from(atob(input.image.data), (char) =>
+    char.charCodeAt(0),
+  );
+  const blob = new Blob([bytes], {
+    type: "image/png",
+  });
+  formData.set(
+    "media",
+    blob,
+    `${input.image.name.replace(/\s+/g, "-") || "knowledge-image"}.png`,
+  );
+
+  const response = await input.fetchImpl(
+    `https://oapi.dingtalk.com/media/upload?access_token=${encodeURIComponent(
+      input.accessToken,
+    )}&type=image`,
+    {
+      method: "POST",
+      body: formData,
+    },
+  );
+
+  if (!response.ok) {
+    throw new Error(`media upload failed with ${response.status}`);
+  }
+
+  const data = (await response.json()) as {
+    media_id?: string;
+    mediaId?: string;
+  };
+  const mediaId = data.media_id ?? data.mediaId;
+
+  if (!mediaId) {
+    throw new Error("missing media id");
+  }
+
+  return mediaId;
+}
+
 export function createSessionWebhookReplier(
   fetchImpl: typeof fetch = fetch,
+  credentials?: {
+    clientId?: string;
+    clientSecret?: string;
+  },
 ): StreamReplyPort {
   return {
-    async replyMarkdown(sessionWebhook: string, text: string) {
+    async replyMarkdown(sessionWebhook: string, text: string, options) {
+      const citations = options?.citations;
+      const images =
+        options?.images?.filter((image) => Boolean(image.data)) ?? [];
+
+      let requestBody:
+        | {
+            msgtype: "text";
+            text: {
+              content: string;
+            };
+          }
+        | {
+            msgtype: "markdown";
+            markdown: {
+              title: string;
+              text: string;
+            };
+          } = {
+        msgtype: "text",
+        text: {
+          content: text,
+        },
+      };
+
+      if (
+        ((citations && citations.length > 0) || images.length > 0) &&
+        credentials?.clientId &&
+        credentials?.clientSecret
+      ) {
+        try {
+          let uploadedImages: Array<{
+            name: string;
+            mediaId: string;
+            preview?: string;
+          }> = [];
+
+          if (images.length > 0) {
+            const accessToken = await getAppAccessToken({
+              fetchImpl,
+              clientId: credentials.clientId,
+              clientSecret: credentials.clientSecret,
+            });
+            uploadedImages = await Promise.all(
+              images.map(async (image) => ({
+                name: image.name,
+                mediaId: await uploadImageMedia({
+                  fetchImpl,
+                  accessToken,
+                  image,
+                }),
+                preview: image.preview,
+              })),
+            );
+          }
+          requestBody = {
+            msgtype: "markdown",
+            markdown: buildMarkdownReply({
+              text,
+              citations,
+              uploadedImages,
+            }),
+          };
+        } catch {
+          requestBody = {
+            msgtype: "text",
+            text: {
+              content: stripImagePlaceholders(text),
+            },
+          };
+        }
+      }
+
       const response = await fetchImpl(sessionWebhook, {
         method: "POST",
         headers: {
           "Content-Type": "application/json",
         },
-        body: JSON.stringify({
-          msgtype: "text",
-          text: {
-            content: text,
-          },
-        }),
+        body: JSON.stringify(requestBody),
       });
 
       if (!response.ok) {
@@ -156,6 +384,10 @@ export function createDingTalkStreamClient(input: {
     createRobotStreamListener({
       client,
       assistant,
+      replier: createSessionWebhookReplier(fetch, {
+        clientId: input.clientId,
+        clientSecret: input.clientSecret,
+      }),
       onSender: input.onSender,
     }),
   );

@@ -23,9 +23,14 @@ import {
 import { KnowledgeCardRetriever } from "@/modules/knowledge/knowledge-card-retriever";
 import { LocalDocumentRetriever } from "@/modules/knowledge/local-document-retriever";
 import { sampleKnowledgeCards } from "@/modules/knowledge/sample-knowledge-cards";
-import type { KnowledgeRetriever } from "@/modules/knowledge/retriever.types";
+import type {
+  KnowledgeCitation,
+  KnowledgeImage,
+  KnowledgeRetriever,
+} from "@/modules/knowledge/retriever.types";
 import { sampleTaskCatalog } from "@/modules/tasks/sample-task-catalog";
 import { TaskCatalogService } from "@/modules/tasks/task-catalog.service";
+import type { RagAskRequest } from "@/modules/knowledge/knowledge-api-client";
 
 type RuntimeEnvInput = Partial<Record<string, string | undefined>>;
 
@@ -43,6 +48,15 @@ type AssistantRuntime = {
   responseGenerator?: ReturnType<typeof createResponseGenerator>;
   localRetriever: KnowledgeRetriever;
   externalRetriever?: KnowledgeRetriever;
+  externalKnowledge?: {
+    ask(data: RagAskRequest): Promise<Awaited<ReturnType<KnowledgeApiClient["ask"]>>>;
+    askStream(data: RagAskRequest): Promise<Response>;
+    getMappedSessionId(sessionId?: string): string | undefined;
+    setMappedSessionId(
+      sessionId: string | undefined,
+      ragSessionId: string | undefined,
+    ): void;
+  };
   taskCatalog: TaskCatalogService;
   contactDirectory: ContactDirectoryService;
   conversationLogger: ConversationLogRepository;
@@ -59,11 +73,17 @@ const runtimeEnvSchema = z.object({
     z.string().min(1).optional(),
   ),
   RAG_API_TIMEOUT: z.preprocess(
-    (value) => value ? parseInt(value, 10) : undefined,
+    (value) =>
+      typeof value === "string" && value.trim() !== ""
+        ? Number.parseInt(value, 10)
+        : undefined,
     z.number().min(1000).max(120000).optional(),
   ),
   RAG_API_RETRY_COUNT: z.preprocess(
-    (value) => value ? parseInt(value, 10) : undefined,
+    (value) =>
+      typeof value === "string" && value.trim() !== ""
+        ? Number.parseInt(value, 10)
+        : undefined,
     z.number().min(0).max(5).optional(),
   ),
   SILICONFLOW_API_KEY: z.preprocess(
@@ -233,6 +253,70 @@ function mapExternalRagDocuments(payload: unknown): ExternalRagDocument[] {
 // 在内容内存里持有一份钉钉会话 ID -> 知识库真实 Session ID 的映射
 const ragSessionMap = new Map<string, string>();
 
+function getMappedRagSessionId(sessionId?: string) {
+  if (!sessionId) {
+    return undefined;
+  }
+
+  return ragSessionMap.get(sessionId);
+}
+
+function setMappedRagSessionId(
+  sessionId: string | undefined,
+  ragSessionId: string | undefined,
+) {
+  if (!sessionId || !ragSessionId) {
+    return;
+  }
+
+  ragSessionMap.set(sessionId, ragSessionId);
+}
+
+function scoreExternalAnswer(answer: string): number {
+  const normalizedAnswer = answer.replace(/\s+/g, "");
+  const lowConfidencePatterns = [
+    "没有直接描述",
+    "未直接描述",
+    "没有明确说明",
+    "未明确说明",
+    "没有提及",
+    "未提及",
+    "未找到",
+    "无法判断",
+    "无法确定",
+    "根据提供的文档片段",
+  ];
+
+  return lowConfidencePatterns.some((pattern) =>
+    normalizedAnswer.includes(pattern),
+  )
+    ? 0.3
+    : 1;
+}
+
+function buildCitationLabel(sourceUrl: string): string {
+  try {
+    const url = new URL(sourceUrl);
+    const segments = url.pathname
+      .split("/")
+      .map((segment) => segment.trim())
+      .filter(Boolean);
+    const lastSegment = segments.at(-1);
+
+    if (!lastSegment) {
+      return url.hostname || sourceUrl;
+    }
+
+    if (url.hostname === "alidocs.dingtalk.com" && segments.includes("nodes")) {
+      return `钉钉文档 · ${decodeURIComponent(lastSegment)}`;
+    }
+
+    return decodeURIComponent(lastSegment);
+  } catch {
+    return sourceUrl;
+  }
+}
+
 export function createExternalRagProvider(input: {
   ragApiUrl: string;
   ragApiKey?: string;
@@ -252,7 +336,7 @@ export function createExternalRagProvider(input: {
     async search({ query, department, userId, sessionId }) {
       try {
         // 如果我们本地记录了该钉钉会话对应的知识库 session，就传给它以维持上下文
-        const ragSessionId = ragSessionMap.get(sessionId || "") || undefined;
+        const ragSessionId = getMappedRagSessionId(sessionId);
 
         // 使用 /ask 接口，完全让外部 RAG 服务执行检索加答案生成
         const response = await apiClient.ask({
@@ -260,28 +344,43 @@ export function createExternalRagProvider(input: {
           operatorId: userId || "unknown",
           // 首次提问不传，后续从 map 里取出来传
           sessionId: ragSessionId,
-          maxChunks: 5,
+          maxSources: 5,
+          excludeImageData: false,
         });
 
         // 记下服务端为其创建的 session 关系，供后续追问使用
-        if (response.sessionId && sessionId) {
-          ragSessionMap.set(sessionId, response.sessionId);
-        }
+        setMappedRagSessionId(sessionId, response.sessionId);
 
         // 既然我们已经全面转用自带答复能力的 /ask 接口，直接提取最终 answer 
         if (!response.answer) {
           return [];
         }
 
-        const mainCitation = response.sources?.[0];
+        const citations = response.source?.map(
+          (sourceUrl): KnowledgeCitation => ({
+            documentTitle: buildCitationLabel(sourceUrl),
+            sourceUrl,
+          }),
+        );
+
         return [
           {
             id: response.sessionId || sessionId || String(Date.now()),
-            title: mainCitation?.documentTitle || "",
+            title: citations?.[0]?.documentTitle ?? "知识库回答",
             content: response.answer,
-            score: 1.0, 
-            url: mainCitation?.sourceUrl,
-            headingPath: mainCitation?.headingPath,
+            score: scoreExternalAnswer(response.answer),
+            url: response.source?.[0],
+            citations,
+            images: response.pics?.map(
+              (picture): KnowledgeImage => ({
+                name: picture.name,
+                data: picture.data,
+                preview: picture.preview,
+              }),
+            ),
+            providerMeta: {
+              ragAskResponse: response,
+            },
           },
         ];
       } catch (error: any) {
@@ -344,6 +443,35 @@ export function createAssistantRuntime(
         }),
       )
     : undefined;
+  const externalKnowledge = env.ragApiUrl
+    ? (() => {
+        const apiClient = new KnowledgeApiClient({
+          baseUrl: env.ragApiUrl,
+          apiKey: env.ragApiKey,
+          fetchImpl: input.fetch ?? fetch,
+          timeout: env.ragApiTimeout ?? 30000,
+          retryCount: env.ragApiRetryCount ?? 2,
+        });
+
+        return {
+          ask(data: RagAskRequest) {
+            return apiClient.ask(data);
+          },
+          askStream(data: RagAskRequest) {
+            return apiClient.askStream(data);
+          },
+          getMappedSessionId(sessionId?: string) {
+            return getMappedRagSessionId(sessionId);
+          },
+          setMappedSessionId(
+            sessionId: string | undefined,
+            ragSessionId: string | undefined,
+          ) {
+            setMappedRagSessionId(sessionId, ragSessionId);
+          },
+        };
+      })()
+    : undefined;
 
   return {
     localRetriever,
@@ -351,6 +479,7 @@ export function createAssistantRuntime(
     modelClassifier,
     responseGenerator,
     externalRetriever,
+    externalKnowledge,
     taskCatalog,
     contactDirectory,
     conversationLogger,

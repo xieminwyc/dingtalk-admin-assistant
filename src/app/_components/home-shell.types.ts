@@ -16,6 +16,12 @@ export type ChatCitation = {
   sourceUrl?: string;
 };
 
+export type ChatImage = {
+  name: string;
+  data?: string;
+  preview?: string;
+};
+
 export type ChatEntryMeta = {
   title?: string;
   scope?: string;
@@ -41,5 +47,6 @@ export type ChatEntry = {
   isThinking?: boolean;
   isError?: boolean;
   citations?: ChatCitation[];
+  images?: ChatImage[];
   meta?: ChatEntryMeta;
 };

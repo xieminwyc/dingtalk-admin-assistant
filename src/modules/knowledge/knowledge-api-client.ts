@@ -16,6 +16,8 @@ export type RagSearchRequest = {
   nextToken?: string;
   /** 搜索模式：fulltext（全文语义搜索，默认） 或 keyword（纯文本关键词精确匹配） */
   searchMode?: "fulltext" | "keyword";
+  /** 设为 true 时结果中不返回 base64 图片数据 */
+  excludeImageData?: boolean;
 };
 
 /**
@@ -38,6 +40,8 @@ export type RagSearchItem = {
   score: number;
   /** 可以直接跳转到钉钉文档查看原文的 URL */
   sourceUrl?: string;
+  /** 可选的 base64 图片数据 */
+  imageData?: string;
 };
 
 /**
@@ -62,24 +66,21 @@ export type RagAskRequest = {
   operatorId: string;
   /** 会话 ID；不传则由服务端创建新会话。若要继续多轮对话，传上一次返回的 sessionId */
   sessionId?: string;
-  /** 参与大模型回答的片段数，默认 5，上限 20，给的越多模型可参考的信息越全，但也更慢 */
-  maxChunks?: number;
+  /** 限定 workspace，不填则跨所有 workspace */
+  workspaceId?: string;
+  /** 参与回答的检索片段数，默认 5 */
+  maxSources?: number;
+  /** 设为 true 时不返回图片的 base64 数据 */
+  excludeImageData?: boolean;
 };
 
-/**
- * 问答生成的答案引用的具体文档数据
- */
-export type RagAskCitation = {
-  /** 引用的片段 ID */
-  chunkId: number;
-  /** 引用的文档 ID */
-  documentId: number;
-  /** 引用的文档标题 */
-  documentTitle: string;
-  /** 跳转看全文的钉钉链接 */
-  sourceUrl: string;
-  /** 所在章节，例如 "第一章" */
-  headingPath?: string;
+export type RagAskPicture = {
+  /** 图片名称，如 图1 */
+  name: string;
+  /** base64 编码的图片数据 */
+  data?: string;
+  /** 图片所在 chunk 的预览文案 */
+  preview?: string;
 };
 
 /**
@@ -90,8 +91,26 @@ export type RagAskResponse = {
   sessionId?: string;
   /** 大模型基于搜索结果直接针对你的问题给出的最终回答文本 */
   answer: string;
-  /** 大模型参考了哪些具体文档才得出的结论（引用依据） */
-  sources?: RagAskCitation[];
+  /** 本次参与回答的文档来源 URL 列表（按文档去重） */
+  source?: string[];
+  /** 答案中引用到的图片列表 */
+  pics?: RagAskPicture[];
+};
+
+export type RagAskStreamDoneEvent = {
+  type: "done";
+  sessionId?: string;
+  sources: RagSearchItem[];
+};
+
+export type RagAskStreamChunkEvent = {
+  type: "chunk";
+  content: string;
+};
+
+export type RagAskStreamErrorEvent = {
+  type: "error";
+  message: string;
 };
 
 /**
@@ -111,9 +130,11 @@ export type RagContextRequest = {
 export type RagContextChunk = {
   chunkId: number;
   chunkNo: number;
+  chunkType: "text" | "image";
   chunkText: string;
   headingPath?: string;
   pageNo?: number;
+  imageData?: string;
   /** 是否是你查询请求里指定的那个核心片段 (True为搜索核心，False为连带查出的前后文) */
   isFocus: boolean;
 };
@@ -124,18 +145,23 @@ export type RagContextResponse = {
   sourceUrl?: string;
 };
 
+export type RagCitationResponse = {
+  chunkId: number;
+  documentId: number;
+  documentTitle: string;
+  sourceUrl: string;
+  headingPath?: string;
+  pageNo?: number;
+  chunkText: string;
+  createdAt: string;
+};
+
 /**
  * 扫描入库任务触发的请求参数
  */
 export type RagScanRequest = {
   /** 想要让知识库学习的 钉钉文档 或 钉钉文件夹 的可访问链接 */
   url: string;
-  /** 操作人的 unionId，后台用来做记录 */
-  operatorId?: string;
-  /** 如果指定了外部独立的空间 */
-  spaceId?: string;
-  /** 对于文件夹，最多允许递归扫描多少篇文档入库 */
-  maxDocs?: number;
 };
 
 export type RagScanResponse = {
@@ -158,9 +184,24 @@ export type RagTaskResponse = {
   status: string;
   /** 已重试次数 */
   retryCount: number;
+  /** 最大重试次数 */
+  maxRetryCount: number;
+  scheduledAt: string;
+  startedAt: string | null;
+  finishedAt: string | null;
   /** 如果 status 是 failed，这里会挂载具体是怎么失败的错误原因 */
   lastError: string | null;
   createdAt: string;
+  updatedAt: string;
+  attempts: Array<{
+    id: number;
+    taskId: number;
+    attemptNo: number;
+    workerName: string;
+    status: string;
+    startedAt: string | null;
+    finishedAt: string | null;
+  }>;
 };
 
 /**
@@ -191,18 +232,27 @@ export class KnowledgeApiClient {
     this.baseUrl = config.baseUrl.replace(/\/$/, "");
   }
 
+  private createHeaders(headers?: HeadersInit): Headers {
+    const normalizedHeaders = new Headers(headers);
+    normalizedHeaders.set("Content-Type", "application/json");
+
+    if (this.config.apiKey) {
+      normalizedHeaders.set("Authorization", `Bearer ${this.config.apiKey}`);
+    }
+
+    return normalizedHeaders;
+  }
+
+  private resolveUrl(endpoint: string) {
+    return `${this.baseUrl}${endpoint}`;
+  }
+
   /**
    * 内部统一封装的标准请求函数，自动处理 Headers、鉴权验证与报错抛出
    */
   private async request<T>(endpoint: string, options: RequestInit): Promise<T> {
     const fetchImpl = this.config.fetchImpl ?? fetch;
-    const headers = new Headers(options.headers);
-    headers.set("Content-Type", "application/json");
-
-    if (this.config.apiKey) {
-      // 通过环境 API Key 实现 Bearer 令牌鉴权
-      headers.set("Authorization", `Bearer ${this.config.apiKey}`);
-    }
+    const headers = this.createHeaders(options.headers);
 
     const timeout = this.config.timeout ?? 30000; // 默认30秒
     const retryCount = this.config.retryCount ?? 1;
@@ -221,7 +271,7 @@ export class KnowledgeApiClient {
       const timeoutId = setTimeout(() => controller.abort(), timeout);
 
       try {
-        const response = await fetchImpl(`${this.baseUrl}${endpoint}`, {
+        const response = await fetchImpl(this.resolveUrl(endpoint), {
           ...options,
           headers,
           signal: controller.signal,
@@ -260,7 +310,7 @@ export class KnowledgeApiClient {
         }
 
         const data = await response.json() as T;
-        console.log(`✅ [KnowledgeApiClient] 请求成功, 收到数据:`, JSON.stringify(data).substring(0, 100) + "...");
+        console.log(`✅ [KnowledgeApiClient] 请求成功, 收到数据:`, JSON.stringify(data));
         console.log("==========================================\n");
         return data;
       } catch (error) {
@@ -337,6 +387,41 @@ export class KnowledgeApiClient {
     });
   }
 
+  async getCitation(chunkId: number | string): Promise<RagCitationResponse> {
+    return this.request<RagCitationResponse>(
+      `/api/v1/knowledge/citation/${chunkId}`,
+      {
+        method: "GET",
+      },
+    );
+  }
+
+  async askStream(data: RagAskRequest): Promise<Response> {
+    const fetchImpl = this.config.fetchImpl ?? fetch;
+    const response = await fetchImpl(this.resolveUrl("/api/v1/knowledge/ask/stream"), {
+      method: "POST",
+      headers: this.createHeaders(),
+      body: JSON.stringify(data),
+    });
+
+    if (!response.ok) {
+      let errorMessage = `${response.status} ${response.statusText}`;
+      try {
+        const errorData = await response.json();
+        if (errorData && typeof errorData === "object") {
+          errorMessage =
+            errorData.error || errorData.message || JSON.stringify(errorData);
+        }
+      } catch {
+        // ignore non-json error body
+      }
+
+      throw new Error(errorMessage);
+    }
+
+    return response;
+  }
+
   /**
    * [录入功能] 提供新文档供库学习
    * 发现系统回答不上来，丢一篇钉钉在线文档或文件夹进去，系统会自动拉取并在后台异步切块学习
@@ -364,5 +449,31 @@ export class KnowledgeApiClient {
     return this.request<RagScanResponse>(`/api/v1/tasks/${taskId}/retry`, {
       method: "POST",
     });
+  }
+
+  async clearSession(sessionId: string): Promise<void> {
+    const fetchImpl = this.config.fetchImpl ?? fetch;
+    const response = await fetchImpl(
+      this.resolveUrl(`/api/v1/knowledge/sessions/${sessionId}`),
+      {
+        method: "DELETE",
+        headers: this.createHeaders(),
+      },
+    );
+
+    if (!response.ok) {
+      let errorMessage = `${response.status} ${response.statusText}`;
+      try {
+        const errorData = await response.json();
+        if (errorData && typeof errorData === "object") {
+          errorMessage =
+            errorData.error || errorData.message || JSON.stringify(errorData);
+        }
+      } catch {
+        // ignore non-json error body
+      }
+
+      throw new Error(errorMessage);
+    }
   }
 }

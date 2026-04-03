@@ -1,4 +1,20 @@
+import type { RagAskResponse } from "./knowledge-api-client";
 import type { KnowledgeDepartment } from "./knowledge-card.types";
+
+export type KnowledgeCitation = {
+  documentTitle: string;
+  sourceUrl?: string;
+};
+
+export type KnowledgeImage = {
+  name: string;
+  data?: string;
+  preview?: string;
+};
+
+export type KnowledgeProviderMeta = {
+  ragAskResponse?: RagAskResponse;
+};
 
 // KnowledgeHit 是检索层和回复层之间的统一数据格式，
 // 这样以后无论数据来自 FAQ 还是外部 RAG，assistant service 都不用重写。
@@ -15,6 +31,9 @@ export type KnowledgeHit = {
   url?: string;
   // 这个字段给后续“引用溯源”预留边界，便于把命中的制度名或文档名展示给用户。
   referenceLabel?: string;
+  citations?: KnowledgeCitation[];
+  images?: KnowledgeImage[];
+  providerMeta?: KnowledgeProviderMeta;
 };
 
 export type KnowledgeSearchResult = {

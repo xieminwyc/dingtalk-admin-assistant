@@ -66,6 +66,9 @@ function buildKnowledgeResolution(hit: KnowledgeHit): AssistantResolution {
     referenceLabel: hit.referenceLabel,
     sourceUrl: hit.url,
     source: hit.source,
+    citations: hit.citations,
+    images: hit.images,
+    providerMeta: hit.providerMeta,
   };
 }
 

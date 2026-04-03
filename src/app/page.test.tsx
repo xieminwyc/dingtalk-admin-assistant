@@ -4,6 +4,31 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 
 import Home from "./page";
 
+function buildSseResponse(events: unknown[]) {
+  const encoder = new TextEncoder();
+
+  return new Response(
+    new ReadableStream({
+      start(controller) {
+        for (const event of events) {
+          controller.enqueue(
+            encoder.encode(`data: ${JSON.stringify(event)}\n\n`),
+          );
+        }
+
+        controller.enqueue(encoder.encode("data: [DONE]\n\n"));
+        controller.close();
+      },
+    }),
+    {
+      status: 200,
+      headers: {
+        "Content-Type": "text/event-stream",
+      },
+    },
+  );
+}
+
 describe("Home", () => {
   afterEach(() => {
     vi.restoreAllMocks();
@@ -240,7 +265,7 @@ describe("Home", () => {
     });
 
     expect(globalThis.fetch).toHaveBeenCalledWith(
-      "/api/dingtalk/webhook",
+      "/api/dingtalk/webhook/stream",
       expect.objectContaining({
         method: "POST",
         body: expect.stringContaining('"entryMode":"contact"'),
@@ -288,18 +313,28 @@ describe("Home", () => {
     const user = userEvent.setup();
 
     vi.spyOn(globalThis, "fetch").mockResolvedValue(
-      new Response(
-        JSON.stringify({
-          reply:
-            "知识主题\n年假制度\n\n结论\n满一年可享受年假。\n\n适用范围\n以制度原文为准。\n\n依据\n《假勤管理办法》",
-        }),
+      buildSseResponse([
         {
-          status: 200,
-          headers: {
-            "Content-Type": "application/json",
-          },
+          type: "chunk",
+          content: "知识主题\n年假制度\n\n",
         },
-      ),
+        {
+          type: "chunk",
+          content: "结论\n满一年可享受年假。\n\n适用范围\n以制度原文为准。",
+        },
+        {
+          type: "done",
+          reply:
+            "知识主题\n年假制度\n\n结论\n满一年可享受年假。\n\n适用范围\n以制度原文为准。",
+          kind: "knowledge",
+          citations: [
+            {
+              documentTitle: "《假勤管理办法》",
+              sourceUrl: "https://alidocs.dingtalk.com/i/nodes/leave-rule",
+            },
+          ],
+        },
+      ]),
     );
 
     render(<Home />);
@@ -313,6 +348,99 @@ describe("Home", () => {
 
     expect(screen.getByText("《假勤管理办法》")).toBeInTheDocument();
     expect(screen.getByText("KNOWLEDGE")).toBeInTheDocument();
+  });
+
+  it("consumes the homepage stream endpoint and appends reply chunks before done metadata", async () => {
+    const user = userEvent.setup();
+
+    vi.spyOn(globalThis, "fetch").mockResolvedValue(
+      buildSseResponse([
+        {
+          type: "chunk",
+          content: "报销",
+        },
+        {
+          type: "chunk",
+          content: "流程如下。",
+        },
+        {
+          type: "done",
+          reply: "报销流程如下。",
+          kind: "knowledge",
+          citations: [
+            {
+              documentTitle: "费用报销制度",
+              sourceUrl: "https://alidocs.dingtalk.com/i/nodes/reimburse",
+            },
+          ],
+        },
+      ]),
+    );
+
+    render(<Home />);
+
+    await user.click(screen.getByText("找制度"));
+    await user.type(screen.getByLabelText("输入消息"), "报销流程是什么{enter}");
+
+    await waitFor(() => {
+      expect(globalThis.fetch).toHaveBeenCalledWith(
+        "/api/dingtalk/webhook/stream",
+        expect.objectContaining({
+          method: "POST",
+        }),
+      );
+    });
+
+    await waitFor(() => {
+      expect(screen.getByText("报销流程如下。")).toBeInTheDocument();
+    });
+    expect(screen.getByText("费用报销制度")).toBeInTheDocument();
+  });
+
+  it("opens an image preview dialog when a cited image is clicked", async () => {
+    const user = userEvent.setup();
+
+    vi.spyOn(globalThis, "fetch").mockResolvedValue(
+      new Response(
+        JSON.stringify({
+          reply: "报销流程如下，详见{{图1}}。",
+          kind: "knowledge",
+          images: [
+            {
+              name: "图1",
+              data: "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO+yf9cAAAAASUVORK5CYII=",
+              preview: "报销流程示意图",
+            },
+          ],
+        }),
+        {
+          status: 200,
+          headers: {
+            "Content-Type": "application/json",
+          },
+        },
+      ),
+    );
+
+    render(<Home />);
+
+    await user.click(screen.getByText("找制度"));
+    await user.type(screen.getByLabelText("输入消息"), "报销流程是什么{enter}");
+
+    await screen.findByRole("img", {
+      name: "报销流程示意图",
+    });
+    expect(screen.queryByText(/\{\{图1\}\}/)).not.toBeInTheDocument();
+
+    const thumbnails = await screen.findAllByRole("img", {
+      name: "报销流程示意图",
+    });
+    expect(thumbnails).toHaveLength(1);
+
+    await user.click(thumbnails[0]!);
+
+    expect(screen.getByRole("dialog", { name: "图1 预览" })).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "关闭预览" })).toBeInTheDocument();
   });
 
   it("shows a thinking animation before the reply resolves", async () => {

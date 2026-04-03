@@ -1,5 +1,6 @@
 import { createAssistantRuntime } from "@/modules/assistant/create-assistant-runtime";
 import type { EntryMode } from "@/modules/assistant/entry-mode.types";
+import type { AssistantResolution } from "@/modules/assistant/assistant.types";
 
 export const runtime = "nodejs";
 
@@ -27,6 +28,65 @@ type DingTalkWebhookPayload = {
   senderStaffId?: string;
   senderId?: string;
 };
+
+function buildResponseMeta(resolution: AssistantResolution) {
+  switch (resolution.kind) {
+    case "knowledge":
+      return {
+        title: resolution.title,
+        scope: resolution.scope,
+      };
+    case "task":
+      return {
+        title: resolution.title,
+        entry: resolution.entry,
+      };
+    case "contact":
+      return {
+        title: resolution.title,
+        contactName: resolution.contactName,
+        team: resolution.team,
+        actionHint: resolution.actionHint,
+      };
+    default:
+      return undefined;
+  }
+}
+
+function buildDebugExternalRag(resolution: AssistantResolution) {
+  if (resolution.kind !== "knowledge") {
+    return undefined;
+  }
+
+  if (!resolution.providerMeta?.ragAskResponse) {
+    return undefined;
+  }
+
+  return {
+    askResponse: resolution.providerMeta.ragAskResponse,
+  };
+}
+
+function buildResponseCitations(resolution: AssistantResolution) {
+  if (resolution.kind !== "knowledge") {
+    return undefined;
+  }
+
+  if (resolution.citations && resolution.citations.length > 0) {
+    return resolution.citations;
+  }
+
+  if (resolution.sourceUrl) {
+    return [
+      {
+        documentTitle: resolution.referenceLabel ?? resolution.sourceUrl,
+        sourceUrl: resolution.sourceUrl,
+      },
+    ];
+  }
+
+  return undefined;
+}
 
 export async function POST(request: Request) {
   // 当前先按最小消息结构读取文本内容，后续接真实钉钉事件体时再扩展字段。
@@ -61,6 +121,13 @@ export async function POST(request: Request) {
   // 这样你在浏览器网络选项卡点击 webhook，不仅能看到 reply，还能直接看到查询知识库的痕迹了！
   return Response.json({
     reply: debugResult.reply,
+    citations: buildResponseCitations(debugResult.resolution),
+    images:
+      debugResult.resolution.kind === "knowledge"
+        ? debugResult.resolution.images
+        : undefined,
+    kind: debugResult.resolution.kind,
+    meta: buildResponseMeta(debugResult.resolution),
     _rag_tracing_: {
       instruction: "看这里！这就是后端默默查询外部服务器的证据",
       intent: debugResult.intent.intent,
@@ -72,6 +139,7 @@ export async function POST(request: Request) {
       conversationContext: debugResult.conversationContext,
       intent: debugResult.intent,
       resolution: debugResult.resolution,
+      externalRag: buildDebugExternalRag(debugResult.resolution),
       usedResponseGenerator: debugResult.usedResponseGenerator,
     } : undefined
   });

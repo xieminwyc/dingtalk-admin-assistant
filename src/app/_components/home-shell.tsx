@@ -20,6 +20,7 @@ import type {
   ChatEntry,
   ChatEntryMeta,
   ChatCitation,
+  ChatImage,
   ChatResultKind,
   ConversationSummary,
   HomeView,
@@ -29,9 +30,34 @@ type WebhookReply = {
   reply?: string;
   error?: string;
   citations?: ChatCitation[];
+  images?: ChatImage[];
   kind?: ChatResultKind;
   meta?: ChatEntryMeta;
 };
+
+type WebhookStreamChunkEvent = {
+  type: "chunk";
+  content?: string;
+};
+
+type WebhookStreamDoneEvent = {
+  type: "done";
+  reply?: string;
+  citations?: ChatCitation[];
+  images?: ChatImage[];
+  kind?: ChatResultKind;
+  meta?: ChatEntryMeta;
+};
+
+type WebhookStreamErrorEvent = {
+  type: "error";
+  message?: string;
+};
+
+type WebhookStreamEvent =
+  | WebhookStreamChunkEvent
+  | WebhookStreamDoneEvent
+  | WebhookStreamErrorEvent;
 
 function createSessionId() {
   return `home-${Math.random().toString(36).slice(2, 10)}`;
@@ -49,6 +75,80 @@ type StoredSession = {
     messages: ChatEntry[];
   }>;
 };
+
+async function readJsonReply(response: Response) {
+  return (await response.json()) as WebhookReply;
+}
+
+async function readStreamEvents(
+  response: Response,
+  handlers: {
+    onChunk(event: WebhookStreamChunkEvent): void;
+    onDone(event: WebhookStreamDoneEvent): void;
+  },
+) {
+  const reader = response.body?.getReader();
+
+  if (!reader) {
+    throw new Error("流式响应为空");
+  }
+
+  const decoder = new TextDecoder();
+  let buffer = "";
+
+  const processBlock = (block: string) => {
+    const data = block
+      .split("\n")
+      .filter((line) => line.startsWith("data:"))
+      .map((line) => line.replace(/^data:\s*/u, ""))
+      .join("\n")
+      .trim();
+
+    if (!data || data === "[DONE]") {
+      return;
+    }
+
+    const event = JSON.parse(data) as WebhookStreamEvent;
+
+    if (event.type === "chunk") {
+      handlers.onChunk(event);
+      return;
+    }
+
+    if (event.type === "done") {
+      handlers.onDone(event);
+      return;
+    }
+
+    throw new Error(event.message ?? "流式请求失败");
+  };
+
+  try {
+    while (true) {
+      const { done, value } = await reader.read();
+
+      if (done) {
+        break;
+      }
+
+      buffer += decoder.decode(value, { stream: true }).replace(/\r\n/g, "\n");
+      const blocks = buffer.split("\n\n");
+      buffer = blocks.pop() ?? "";
+
+      for (const block of blocks) {
+        processBlock(block);
+      }
+    }
+
+    buffer += decoder.decode();
+
+    if (buffer.trim()) {
+      processBlock(buffer);
+    }
+  } finally {
+    reader.releaseLock();
+  }
+}
 
 export function HomeShell() {
   const [sessionId, setSessionId] = useState(createSessionId);
@@ -215,7 +315,7 @@ export function HomeShell() {
     }
 
     try {
-      const response = await fetch("/api/dingtalk/webhook", {
+      const response = await fetch("/api/dingtalk/webhook/stream", {
         method: "POST",
         headers: {
           "Content-Type": "application/json",
@@ -228,21 +328,68 @@ export function HomeShell() {
           },
         }),
       });
-      const payload = (await response.json()) as WebhookReply;
+      const contentType = response.headers.get("Content-Type") ?? "";
 
       if (!response.ok) {
-        throw new Error(payload.error ?? "发送失败");
+        if (contentType.includes("application/json")) {
+          const payload = await readJsonReply(response);
+          throw new Error(payload.error ?? "发送失败");
+        }
+
+        throw new Error(await response.text());
       }
 
-      replaceMessage(thinkingId, {
-        id: thinkingId,
-        role: "assistant",
-        content: payload.reply ?? "暂时没有拿到回复。",
-        mode: resolvedEntryMode ?? null,
-        kind: payload.kind ?? null,
-        citations: payload.citations,
-        meta: payload.meta,
-      });
+      if (contentType.includes("text/event-stream")) {
+        let streamedReply = "";
+        let finalized = false;
+
+        await readStreamEvents(response, {
+          onChunk(event) {
+            streamedReply += event.content ?? "";
+            replaceMessage(thinkingId, {
+              id: thinkingId,
+              role: "assistant",
+              content: streamedReply || "AI 正在思考...",
+              mode: resolvedEntryMode ?? null,
+            });
+          },
+          onDone(event) {
+            finalized = true;
+            replaceMessage(thinkingId, {
+              id: thinkingId,
+              role: "assistant",
+              content: event.reply ?? streamedReply ?? "暂时没有拿到回复。",
+              mode: resolvedEntryMode ?? null,
+              kind: event.kind ?? null,
+              citations: event.citations,
+              images: event.images,
+              meta: event.meta,
+            });
+          },
+        });
+
+        if (!finalized) {
+          replaceMessage(thinkingId, {
+            id: thinkingId,
+            role: "assistant",
+            content: streamedReply || "暂时没有拿到回复。",
+            mode: resolvedEntryMode ?? null,
+          });
+        }
+      } else {
+        const payload = await readJsonReply(response);
+
+        replaceMessage(thinkingId, {
+          id: thinkingId,
+          role: "assistant",
+          content: payload.reply ?? "暂时没有拿到回复。",
+          mode: resolvedEntryMode ?? null,
+          kind: payload.kind ?? null,
+          citations: payload.citations,
+          images: payload.images,
+          meta: payload.meta,
+        });
+      }
     } catch (caughtError) {
       const errorMessage =
         caughtError instanceof Error ? caughtError.message : "发送失败";

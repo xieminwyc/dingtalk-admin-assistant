@@ -1,4 +1,9 @@
 import type { HandoffDecision } from "../handoff/handoff.service";
+import type {
+  KnowledgeCitation,
+  KnowledgeImage,
+  KnowledgeProviderMeta,
+} from "../knowledge/retriever.types";
 
 type AssistantIntentByKind = {
   knowledge: "knowledge_query";
@@ -19,6 +24,9 @@ export type AssistantKnowledgeResolution = {
   referenceLabel?: string;
   sourceUrl?: string;
   source?: string;
+  citations?: KnowledgeCitation[];
+  images?: KnowledgeImage[];
+  providerMeta?: KnowledgeProviderMeta;
 };
 
 export type AssistantTaskResolution = {

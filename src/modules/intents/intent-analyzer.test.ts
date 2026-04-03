@@ -152,6 +152,174 @@ describe("createIntentAnalyzer", () => {
     });
   });
 
+  it("corrects descriptive process questions back to internal knowledge when the model mislabels them as task", async () => {
+    const analyzer = createIntentAnalyzer({
+      modelClassifier: {
+        classify: vi.fn().mockResolvedValue({
+          mode: "task",
+          intentConfidence: 0.88,
+          needKnowledge: false,
+          needTaskResolution: true,
+          toolPlan: "task",
+          topicShift: false,
+          taskHint: "expense_application"
+        } satisfies AssistantDecision)
+      }
+    });
+
+    const result = await analyzer.analyze({
+      query: "报销流程是什么"
+    });
+
+    expect(result).toEqual({
+      mode: "internal_knowledge",
+      intentConfidence: 0.88,
+      needKnowledge: true,
+      needTaskResolution: false,
+      toolPlan: "knowledge",
+      topicShift: false,
+      knowledgeHint: "报销流程",
+      intent: "knowledge_query",
+      source: "model"
+    });
+  });
+
+  it("corrects obvious company knowledge queries back to internal knowledge when the model mislabels them as open_response", async () => {
+    const analyzer = createIntentAnalyzer({
+      modelClassifier: {
+        classify: vi.fn().mockResolvedValue({
+          mode: "open_response",
+          intentConfidence: 0.79,
+          needKnowledge: false,
+          needTaskResolution: false,
+          toolPlan: "none",
+          topicShift: false,
+          reply: "你可以先补充一点背景。"
+        } satisfies AssistantDecision)
+      }
+    });
+
+    const result = await analyzer.analyze({
+      query: "OA 费用报销申请怎么填"
+    });
+
+    expect(result).toEqual({
+      mode: "internal_knowledge",
+      intentConfidence: 0.79,
+      needKnowledge: true,
+      needTaskResolution: false,
+      toolPlan: "knowledge",
+      topicShift: false,
+      knowledgeHint: "OA 费用报销申请怎么填",
+      intent: "knowledge_query",
+      source: "model"
+    });
+  });
+
+  it("keeps obvious company form-filling questions on internal knowledge", async () => {
+    const analyzer = createIntentAnalyzer({
+      modelClassifier: {
+        classify: vi.fn().mockResolvedValue({
+          mode: "open_response",
+          intentConfidence: 0.74,
+          needKnowledge: false,
+          needTaskResolution: false,
+          toolPlan: "none",
+          topicShift: false,
+          reply: "你可以说得更具体一点。"
+        } satisfies AssistantDecision)
+      }
+    });
+
+    const result = await analyzer.analyze({
+      query: "考勤异常怎么填"
+    });
+
+    expect(result).toEqual({
+      mode: "internal_knowledge",
+      intentConfidence: 0.74,
+      needKnowledge: true,
+      needTaskResolution: false,
+      toolPlan: "knowledge",
+      topicShift: false,
+      knowledgeHint: "考勤异常怎么填",
+      intent: "knowledge_query",
+      source: "model"
+    });
+  });
+
+  it("keeps short follow-up questions on company policy in internal knowledge when previous turns are knowledge discussion", async () => {
+    const analyzer = createIntentAnalyzer({
+      modelClassifier: {
+        classify: vi.fn().mockResolvedValue({
+          mode: "open_response",
+          intentConfidence: 0.67,
+          needKnowledge: false,
+          needTaskResolution: false,
+          toolPlan: "none",
+          topicShift: false,
+          reply: "上班时间通常要看公司规定。"
+        } satisfies AssistantDecision)
+      }
+    });
+
+    const result = await analyzer.analyze({
+      query: "那上班时间呢",
+      conversationContext: [
+        { role: "user", content: "报销流程是什么" },
+        { role: "assistant", content: "报销流程如下，并附有制度依据。" }
+      ]
+    });
+
+    expect(result).toEqual({
+      mode: "internal_knowledge",
+      intentConfidence: 0.67,
+      needKnowledge: true,
+      needTaskResolution: false,
+      toolPlan: "knowledge",
+      topicShift: false,
+      knowledgeHint: "上班时间",
+      intent: "knowledge_query",
+      source: "model"
+    });
+  });
+
+  it("keeps short follow-up questions like late-arrival policy in internal knowledge when previous turns are knowledge discussion", async () => {
+    const analyzer = createIntentAnalyzer({
+      modelClassifier: {
+        classify: vi.fn().mockResolvedValue({
+          mode: "open_response",
+          intentConfidence: 0.66,
+          needKnowledge: false,
+          needTaskResolution: false,
+          toolPlan: "none",
+          topicShift: false,
+          reply: "这通常要看公司制度。"
+        } satisfies AssistantDecision)
+      }
+    });
+
+    const result = await analyzer.analyze({
+      query: "那迟到呢",
+      conversationContext: [
+        { role: "user", content: "上班时间是什么" },
+        { role: "assistant", content: "我来按制度给你查。" }
+      ]
+    });
+
+    expect(result).toEqual({
+      mode: "internal_knowledge",
+      intentConfidence: 0.66,
+      needKnowledge: true,
+      needTaskResolution: false,
+      toolPlan: "knowledge",
+      topicShift: false,
+      knowledgeHint: "迟到",
+      intent: "knowledge_query",
+      source: "model"
+    });
+  });
+
   it("falls back to a conservative clarify decision when the model throws", async () => {
     const warnSpy = vi.spyOn(console, "warn").mockImplementation(() => {});
     const analyzer = createIntentAnalyzer({

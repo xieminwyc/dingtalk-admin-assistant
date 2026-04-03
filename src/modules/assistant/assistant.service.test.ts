@@ -488,7 +488,10 @@ describe("createAssistantService", () => {
     expect(reply).toContain("请再具体描述一下问题");
   });
 
-  it("prefers the response generator when model output is available", async () => {
+  it("returns knowledge replies directly without passing through the response generator", async () => {
+    const generate = vi
+      .fn()
+      .mockResolvedValue("依据《员工假勤管理办法》，年假天数按司龄计算。");
     const assistant = createAssistantService({
       localRetriever: {
         async search() {
@@ -508,15 +511,15 @@ describe("createAssistantService", () => {
       },
       taskCatalog: createTaskCatalog(),
       responseGenerator: {
-        generate: vi
-          .fn()
-          .mockResolvedValue("依据《年假规则》，年假天数按司龄计算。")
+        generate
       }
     });
 
     const reply = await assistant.reply("年假规则是什么");
 
-    expect(reply).toBe("依据《年假规则》，年假天数按司龄计算。");
+    expect(reply).toContain("知识主题");
+    expect(reply).toContain("年假按司龄计算。");
+    expect(generate).not.toHaveBeenCalled();
   });
 
   it("falls back to reply-builder when the response generator returns null", async () => {
@@ -622,6 +625,9 @@ describe("createAssistantService", () => {
         });
       }
     };
+    const generate = vi
+      .fn()
+      .mockResolvedValue("依据《员工假勤管理办法》，年假天数按司龄计算。");
     const assistant = createAssistantService({
       localRetriever: {
         async search() {
@@ -645,7 +651,7 @@ describe("createAssistantService", () => {
       analyzer,
       taskCatalog: createTaskCatalog(),
       responseGenerator: {
-        generate: vi.fn().mockResolvedValue("依据《员工假勤管理办法》，年假天数按司龄计算。")
+        generate
       },
       conversationContextService: {
         loadRecentContext: vi.fn().mockResolvedValue([
@@ -665,7 +671,8 @@ describe("createAssistantService", () => {
     expect(result.conversationContext).toEqual([
       { role: "user", content: "你能做什么？" }
     ]);
-    expect(result.usedResponseGenerator).toBe(true);
+    expect(result.usedResponseGenerator).toBe(false);
+    expect(generate).not.toHaveBeenCalled();
   });
 
   it("returns an open_response debug result without touching internal knowledge tools", async () => {

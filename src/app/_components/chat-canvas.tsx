@@ -1,4 +1,11 @@
-import type { ChatCitation, ChatEntry, ChatResultKind } from "./home-shell.types";
+import { useState } from "react";
+
+import type {
+  ChatCitation,
+  ChatEntry,
+  ChatImage,
+  ChatResultKind,
+} from "./home-shell.types";
 
 type ChatCanvasProps = {
   isSending: boolean;
@@ -8,6 +15,26 @@ type ChatCanvasProps = {
 type ChatSection = {
   label?: string;
   body: string;
+};
+
+type ChatBodyToken =
+  | {
+      type: "text";
+      value: string;
+    }
+  | {
+      type: "image";
+      image: ChatImage;
+    }
+  | {
+      type: "image-placeholder";
+      imageName: string;
+    };
+
+type SectionRenderState = {
+  section: ChatSection;
+  tokens: ChatBodyToken[];
+  referencedImageNames: string[];
 };
 
 const SOURCE_LABELS = new Set(["依据", "依据来源", "参考来源"]);
@@ -58,6 +85,76 @@ function deriveCitationEntries(message: ChatEntry, sections: ChatSection[]) {
   };
 }
 
+function buildSectionRenderState(
+  section: ChatSection,
+  images: ChatImage[],
+): SectionRenderState {
+  const imageByName = new Map(images.map((image) => [image.name, image]));
+  const referencedImageNames = new Set<string>();
+  const tokens: ChatBodyToken[] = [];
+  const pattern = /\{\{([^}]+)\}\}/gu;
+  let lastIndex = 0;
+
+  for (const match of section.body.matchAll(pattern)) {
+    const matchText = match[0];
+    const imageName = match[1]?.trim();
+    const image = imageName ? imageByName.get(imageName) : undefined;
+    const startIndex = match.index ?? 0;
+
+    if (startIndex > lastIndex) {
+      tokens.push({
+        type: "text",
+        value: section.body.slice(lastIndex, startIndex),
+      });
+    }
+
+    if (image?.data) {
+      referencedImageNames.add(image.name);
+      tokens.push({
+        type: "image",
+        image,
+      });
+    } else {
+      const resolvedImageName = image?.name ?? imageName;
+
+      if (resolvedImageName) {
+        referencedImageNames.add(resolvedImageName);
+        tokens.push({
+          type: "image-placeholder",
+          imageName: resolvedImageName,
+        });
+      } else {
+        tokens.push({
+          type: "text",
+          value: matchText,
+        });
+      }
+    }
+
+    lastIndex = startIndex + matchText.length;
+  }
+
+  if (lastIndex < section.body.length) {
+    tokens.push({
+      type: "text",
+      value: section.body.slice(lastIndex),
+    });
+  }
+
+  if (tokens.length === 0) {
+    tokens.push({
+      type: "text",
+      value: section.body,
+    });
+  }
+
+  return {
+    section,
+    tokens,
+    referencedImageNames: [...referencedImageNames],
+  };
+}
+
 function formatModeLabel(kind?: ChatResultKind | null, mode?: ChatEntry["mode"]) {
   const rawValue = kind ?? mode;
 
@@ -93,89 +190,238 @@ function renderCitation(citation: ChatCitation, index: number) {
   );
 }
 
-export function ChatCanvas({ isSending, messages }: ChatCanvasProps) {
+function renderImage(
+  image: ChatImage,
+  index: number,
+  onOpen: (image: ChatImage) => void,
+) {
   return (
-    <section className="portal-chat-card">
-      <div className="portal-section-head">
-        <h2>有问题尽管问我～</h2>
-        {isSending ? (
-          <span className="portal-sending-badge">处理中...</span>
+    <div
+      key={`${image.name}-${index}`}
+      className="portal-chat-image-card"
+    >
+      {image.data ? (
+        <button
+          type="button"
+          className="portal-chat-image-trigger"
+          onClick={() => onOpen(image)}
+        >
+          <img
+            alt={image.preview ?? image.name}
+            className="portal-chat-image"
+            src={`data:image/png;base64,${image.data}`}
+          />
+        </button>
+      ) : null}
+      <div className="portal-chat-image-meta">
+        <p className="portal-chat-image-name">{image.name}</p>
+        {image.preview ? (
+          <p className="portal-chat-image-preview">{image.preview}</p>
         ) : null}
       </div>
+    </div>
+  );
+}
 
-      <div className="portal-chat-history">
-        {messages.length === 0 ? (
-          <div className="portal-chat-empty">
-            有问题尽管问我。你可以点卡片示例问题，也可以直接在下面输入。
+export function ChatCanvas({ isSending, messages }: ChatCanvasProps) {
+  const [previewImage, setPreviewImage] = useState<ChatImage | null>(null);
+
+  return (
+    <>
+      <section className="portal-chat-card">
+        <div className="portal-section-head">
+          <h2>有问题尽管问我～</h2>
+          {isSending ? (
+            <span className="portal-sending-badge">处理中...</span>
+          ) : null}
+        </div>
+
+        <div className="portal-chat-history">
+          {messages.length === 0 ? (
+            <div className="portal-chat-empty">
+              有问题尽管问我。你可以点卡片示例问题，也可以直接在下面输入。
+            </div>
+          ) : (
+            messages.map((message) => {
+              const sections = splitSections(message.content);
+              const { citations, contentSections } = deriveCitationEntries(
+                message,
+                sections,
+              );
+              const sectionRenderStates = contentSections.map((section) =>
+                buildSectionRenderState(section, message.images ?? []),
+              );
+              const referencedImageNames = new Set(
+                sectionRenderStates.flatMap(
+                  (sectionState) => sectionState.referencedImageNames,
+                ),
+              );
+              const galleryImages = (message.images ?? []).filter(
+                (image) => !referencedImageNames.has(image.name),
+              );
+              const modeLabel = formatModeLabel(message.kind, message.mode);
+
+              return (
+                <article
+                  key={message.id}
+                  className={`portal-chat-bubble portal-chat-bubble-${message.role}${
+                    message.isThinking ? " portal-chat-bubble-thinking" : ""
+                  }`}
+                >
+                  <p className="portal-chat-role">
+                    {message.role === "user" ? "你" : "万事通"}
+                  </p>
+
+                  {message.isThinking ? (
+                    <div className="portal-thinking-dots">
+                      <span />
+                      <span />
+                      <span />
+                    </div>
+                  ) : message.role === "assistant" ? (
+                    <div className="portal-chat-structured">
+                      {sectionRenderStates.length > 0 ? (
+                        sectionRenderStates.map((sectionState, index) => (
+                          <div
+                            key={`${sectionState.section.label ?? "content"}-${index}`}
+                          >
+                            {sectionState.section.label ? (
+                              <p className="portal-chat-section-label">
+                                {sectionState.section.label}
+                              </p>
+                            ) : null}
+                            <div className="portal-chat-section-body">
+                              {sectionState.tokens.map((token, tokenIndex) =>
+                                token.type === "text" ? (
+                                  <span key={`text-${tokenIndex}`}>
+                                    {token.value}
+                                  </span>
+                                ) : token.type === "image" ? (
+                                  <div
+                                    key={`image-${token.image.name}-${tokenIndex}`}
+                                    className="portal-chat-inline-image-card"
+                                  >
+                                    <button
+                                      type="button"
+                                      className="portal-chat-inline-image-trigger"
+                                      onClick={() => setPreviewImage(token.image)}
+                                    >
+                                      <img
+                                        alt={token.image.preview ?? token.image.name}
+                                        className="portal-chat-inline-image"
+                                        src={`data:image/png;base64,${token.image.data}`}
+                                      />
+                                    </button>
+                                    <div className="portal-chat-inline-image-meta">
+                                      <p className="portal-chat-inline-image-name">
+                                        {token.image.name}
+                                      </p>
+                                      {token.image.preview ? (
+                                        <p className="portal-chat-inline-image-preview">
+                                          {token.image.preview}
+                                        </p>
+                                      ) : null}
+                                    </div>
+                                  </div>
+                                ) : (
+                                  <div
+                                    key={`image-placeholder-${token.imageName}-${tokenIndex}`}
+                                    className="portal-chat-inline-image-card portal-chat-inline-image-placeholder-card"
+                                  >
+                                    <div
+                                      aria-hidden="true"
+                                      className="portal-chat-inline-image-placeholder-box"
+                                    />
+                                    <div className="portal-chat-inline-image-meta">
+                                      <p className="portal-chat-inline-image-name">
+                                        {token.imageName}
+                                      </p>
+                                      <p className="portal-chat-inline-image-preview">
+                                        图片加载中
+                                      </p>
+                                    </div>
+                                  </div>
+                                ),
+                              )}
+                            </div>
+                          </div>
+                        ))
+                      ) : (
+                        <p className="portal-chat-section-body">{message.content}</p>
+                      )}
+
+                      {citations.length > 0 ? (
+                        <div className="portal-chat-citations">
+                          <p className="portal-chat-citations-label">依据来源</p>
+                          <div className="portal-chat-citations-list">
+                            {citations.map(renderCitation)}
+                          </div>
+                        </div>
+                      ) : null}
+
+                      {galleryImages.length > 0 ? (
+                        <div className="portal-chat-citations">
+                          <p className="portal-chat-citations-label">引用图片</p>
+                          <div className="portal-chat-images">
+                            {galleryImages.map((image, index) =>
+                              renderImage(image, index, setPreviewImage),
+                            )}
+                          </div>
+                        </div>
+                      ) : null}
+
+                      {modeLabel ? (
+                        <div className="portal-chat-footer">
+                          <span className="portal-chat-mode-badge">{modeLabel}</span>
+                        </div>
+                      ) : null}
+                    </div>
+                  ) : (
+                    <p>{message.content}</p>
+                  )}
+                </article>
+              );
+            })
+          )}
+        </div>
+      </section>
+
+      {previewImage?.data ? (
+        <div
+          className="portal-image-lightbox"
+          role="dialog"
+          aria-modal="true"
+          aria-label={`${previewImage.name} 预览`}
+        >
+          <button
+            type="button"
+            className="portal-image-lightbox-backdrop"
+            aria-hidden="true"
+            onClick={() => setPreviewImage(null)}
+          />
+          <div className="portal-image-lightbox-card">
+            <button
+              type="button"
+              className="portal-image-lightbox-close"
+              aria-label="关闭预览"
+              onClick={() => setPreviewImage(null)}
+            >
+              关闭
+            </button>
+            <img
+              alt={previewImage.preview ?? previewImage.name}
+              className="portal-image-lightbox-image"
+              src={`data:image/png;base64,${previewImage.data}`}
+            />
+            <div className="portal-image-lightbox-meta">
+              <p className="portal-chat-image-name">{previewImage.name}</p>
+              {previewImage.preview ? (
+                <p className="portal-chat-image-preview">{previewImage.preview}</p>
+              ) : null}
+            </div>
           </div>
-        ) : (
-          messages.map((message) => {
-            const sections = splitSections(message.content);
-            const { citations, contentSections } = deriveCitationEntries(
-              message,
-              sections,
-            );
-            const modeLabel = formatModeLabel(message.kind, message.mode);
-
-            return (
-              <article
-                key={message.id}
-                className={`portal-chat-bubble portal-chat-bubble-${message.role}${
-                  message.isThinking ? " portal-chat-bubble-thinking" : ""
-                }`}
-              >
-                <p className="portal-chat-role">
-                  {message.role === "user" ? "你" : "万事通"}
-                </p>
-
-                {message.isThinking ? (
-                  <div className="portal-thinking-dots">
-                    <span />
-                    <span />
-                    <span />
-                  </div>
-                ) : message.role === "assistant" ? (
-                  <div className="portal-chat-structured">
-                    {contentSections.length > 0 ? (
-                      contentSections.map((section, index) => (
-                        <div key={`${section.label ?? "content"}-${index}`}>
-                          {section.label ? (
-                            <p className="portal-chat-section-label">
-                              {section.label}
-                            </p>
-                          ) : null}
-                          <p className="portal-chat-section-body">
-                            {section.body}
-                          </p>
-                        </div>
-                      ))
-                    ) : (
-                      <p className="portal-chat-section-body">{message.content}</p>
-                    )}
-
-                    {citations.length > 0 ? (
-                      <div className="portal-chat-citations">
-                        <p className="portal-chat-citations-label">依据来源</p>
-                        <div className="portal-chat-citations-list">
-                          {citations.map(renderCitation)}
-                        </div>
-                      </div>
-                    ) : null}
-
-                    {modeLabel ? (
-                      <div className="portal-chat-footer">
-                        <span className="portal-chat-mode-badge">{modeLabel}</span>
-                      </div>
-                    ) : null}
-                  </div>
-                ) : (
-                  <p>{message.content}</p>
-                )}
-              </article>
-            );
-          })
-        )}
-      </div>
-    </section>
+        </div>
+      ) : null}
+    </>
   );
 }

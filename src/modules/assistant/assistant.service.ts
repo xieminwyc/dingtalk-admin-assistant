@@ -239,10 +239,9 @@ export function createAssistantService(input: {
       userId: replyInput.userId,
       sessionId: replyInput.sessionId,
     });
-    // Если我们已经在使用外部大模型直接出 answer (source === 'rag')，
-    // 我们就不再走一遍内部大模型润色，避免重复花时间和费用，以及冲掉外脑原意。
-    const shouldSkipGeneration =
-      resolution.kind === "knowledge" && resolution.source === "rag";
+    // 知识查询的答案要尽量保持 provider 原样输出，
+    // 不再走一遍本地回复生成器，避免把制度内容或外部知识库答案二次改写。
+    const shouldSkipGeneration = resolution.kind === "knowledge";
 
     const generatedReply =
       input.responseGenerator && !shouldSkipGeneration

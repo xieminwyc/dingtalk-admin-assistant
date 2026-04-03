@@ -148,6 +148,83 @@ describe("createSessionWebhookReplier", () => {
       })
     });
   });
+
+  it("uploads cited images and sends a markdown message when knowledge reply contains pictures", async () => {
+    const fetchMock = vi
+      .fn<typeof fetch>()
+      .mockResolvedValueOnce(
+        Response.json({
+          accessToken: "token-1",
+          expireIn: 7200,
+        }),
+      )
+      .mockResolvedValueOnce(
+        Response.json({
+          errcode: 0,
+          errmsg: "ok",
+          media_id: "@MEDIA-1",
+          created_at: 1710000000000,
+          type: "image",
+        }),
+      )
+      .mockResolvedValueOnce(new Response(null, { status: 200 }));
+
+    const replier = createSessionWebhookReplier(fetchMock, {
+      clientId: "ding-app-key",
+      clientSecret: "ding-app-secret",
+    });
+
+    await replier.replyMarkdown(
+      "https://session.example.com",
+      "公司的报销流程如下，详见{{图1}}。\n\n[依据]: 钉钉文档 · ydxXB52LJqe7j5PATQOZGldZJqjMp697",
+      {
+        citations: [
+          {
+            documentTitle: "沐腾费用报销流程及须知事项20260310",
+            sourceUrl:
+              "https://alidocs.dingtalk.com/i/nodes/ydxXB52LJqe7j5PATQOZGldZJqjMp697",
+          },
+        ],
+        images: [
+          {
+            name: "图1",
+            data: "aGVsbG8=",
+            preview: "报销流程示意图",
+          },
+        ],
+      },
+    );
+
+    expect(fetchMock).toHaveBeenNthCalledWith(
+      1,
+      "https://api.dingtalk.com/v1.0/oauth2/accessToken",
+      expect.objectContaining({
+        method: "POST",
+        body: JSON.stringify({
+          appKey: "ding-app-key",
+          appSecret: "ding-app-secret",
+        }),
+      }),
+    );
+    expect(fetchMock.mock.calls[1]?.[0]).toBe(
+      "https://oapi.dingtalk.com/media/upload?access_token=token-1&type=image",
+    );
+    expect(fetchMock).toHaveBeenNthCalledWith(
+      3,
+      "https://session.example.com",
+      expect.objectContaining({
+        method: "POST",
+        body: JSON.stringify({
+          msgtype: "markdown",
+          markdown: {
+            title: "公司的报销流程如下，详见图1。",
+            text:
+              "公司的报销流程如下，详见图1。\n\n### 图1\n\n![图1](@MEDIA-1)\n\n> 报销流程示意图\n\n### 依据来源\n\n- [沐腾费用报销流程及须知事项20260310](https://alidocs.dingtalk.com/i/nodes/ydxXB52LJqe7j5PATQOZGldZJqjMp697)",
+          },
+        }),
+      }),
+    );
+  });
 });
 
 describe("createRobotStreamListener", () => {

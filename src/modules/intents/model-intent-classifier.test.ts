@@ -170,6 +170,10 @@ describe("createModelIntentClassifier", () => {
     expect(requestBody.messages[0]?.content).toContain(
       "意图判断只看用户当前想做什么"
     );
+    expect(requestBody.messages[0]?.content).toContain("报销流程是什么");
+    expect(requestBody.messages[0]?.content).toContain("报销流程说明");
+    expect(requestBody.messages[0]?.content).toContain("OA 费用报销申请怎么填");
+    expect(requestBody.messages[0]?.content).toContain("那上班时间呢");
   });
 
   it("preserves reply for open_response decisions", async () => {

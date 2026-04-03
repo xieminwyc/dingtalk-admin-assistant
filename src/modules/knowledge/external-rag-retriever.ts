@@ -1,5 +1,8 @@
 import { normalizeKnowledgeDepartment } from "./knowledge-card.types";
 import type {
+  KnowledgeCitation,
+  KnowledgeImage,
+  KnowledgeProviderMeta,
   KnowledgeRetriever,
   KnowledgeSearchOptions,
   KnowledgeSearchResult
@@ -13,6 +16,9 @@ export type ExternalRagDocument = {
   score?: number;
   url?: string;
   headingPath?: string;
+  citations?: KnowledgeCitation[];
+  images?: KnowledgeImage[];
+  providerMeta?: KnowledgeProviderMeta;
 };
 
 export interface ExternalRagProvider {
@@ -56,7 +62,10 @@ export class ExternalRagRetriever implements KnowledgeRetriever {
           source: "rag" as const,
           url: document.url,
           // 如果存在标题则说明确实有真实引用，进行拼接，否则彻底不生成溯源字段
-          referenceLabel: document.title ? (document.headingPath ? `${document.title} - ${document.headingPath}` : document.title) : undefined
+          referenceLabel: document.title ? (document.headingPath ? `${document.title} - ${document.headingPath}` : document.title) : undefined,
+          citations: document.citations,
+          images: document.images,
+          providerMeta: document.providerMeta,
         };
       }),
       relatedKeywords: []

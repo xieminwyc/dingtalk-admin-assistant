@@ -60,6 +60,90 @@ describe("createDingTalkStreamHandler", () => {
     expect(result.retryable).toBe(false);
   });
 
+  it("passes knowledge images to the replier when debug resolution includes cited pictures", async () => {
+    const replyMarkdown = vi.fn(async () => undefined);
+    const assistant = {
+      reply: vi.fn(async () => "不会被调用"),
+      replyWithDebug: vi.fn(async () => ({
+        reply: "公司的报销流程如下，详见{{图1}}。",
+        conversationContext: [],
+        intent: {
+          mode: "internal_knowledge",
+          intentConfidence: 0.9,
+          needKnowledge: true,
+          needTaskResolution: false,
+          toolPlan: "knowledge",
+          topicShift: false,
+          intent: "knowledge_query",
+          source: "model",
+        },
+        resolution: {
+          kind: "knowledge",
+          intent: "knowledge_query",
+          title: "报销流程",
+          answer: "公司的报销流程如下，详见{{图1}}。",
+          citations: [
+            {
+              documentTitle: "沐腾费用报销流程及须知事项20260310",
+              sourceUrl:
+                "https://alidocs.dingtalk.com/i/nodes/ydxXB52LJqe7j5PATQOZGldZJqjMp697",
+            },
+          ],
+          images: [
+            {
+              name: "图1",
+              data: "base64-image",
+              preview: "报销流程示意图",
+            },
+          ],
+        },
+        usedResponseGenerator: false,
+      })),
+    };
+
+    const handler = createDingTalkStreamHandler({
+      assistant,
+      replier: {
+        replyMarkdown,
+      },
+    });
+
+    const result = await handler({
+      sessionWebhook: "https://session.example.com",
+      text: {
+        content: "报销流程是什么",
+      },
+    });
+
+    expect(assistant.replyWithDebug).toHaveBeenCalledWith({
+      query: "报销流程是什么",
+      sessionId: "https://session.example.com",
+      userId: undefined,
+    });
+    expect(replyMarkdown).toHaveBeenCalledWith(
+      "https://session.example.com",
+      "公司的报销流程如下，详见{{图1}}。",
+      {
+        citations: [
+          {
+            documentTitle: "沐腾费用报销流程及须知事项20260310",
+            sourceUrl:
+              "https://alidocs.dingtalk.com/i/nodes/ydxXB52LJqe7j5PATQOZGldZJqjMp697",
+          },
+        ],
+        images: [
+          {
+            name: "图1",
+            data: "base64-image",
+            preview: "报销流程示意图",
+          },
+        ],
+      },
+    );
+    expect(result.success).toBe(true);
+    expect(result.retryable).toBe(false);
+  });
+
   it("skips replying when the incoming message is empty", async () => {
     const replyMarkdown = vi.fn(async () => undefined);
     const assistant = {
