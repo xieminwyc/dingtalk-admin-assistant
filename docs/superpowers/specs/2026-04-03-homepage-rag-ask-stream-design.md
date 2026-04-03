@@ -6,12 +6,25 @@
 
 在首页 Web 聊天入口优先接入知识库流式接口 `POST /api/v1/knowledge/ask/stream`，实现知识问答的打字机输出效果，同时保留现有同步 `/ask` 与一次性 `/api/dingtalk/webhook` 作为兜底链路。
 
+## 当前实现状态
+
+截至 2026-04-03，目标已在首页链路落地，实际行为如下：
+
+- 已新增首页专用流式路由 [route.ts](/Users/xiemin/monter/dingtalk-admin-assistant/src/app/api/dingtalk/webhook/stream/route.ts)
+- 首页前端 [HomeShell](/Users/xiemin/monter/dingtalk-admin-assistant/src/app/_components/home-shell.tsx) 已改为消费 SSE，并在 `chunk` 阶段逐步更新 assistant 消息
+- 对知识问答场景，后端会把上游原始 SSE 统一规整为 `chunk` / `done` / `error` 三类事件，前端不再直接依赖外部服务协议细节
+- `done` 事件除了 `reply` 外，还会补齐 `citations`、`images`、`kind`、`meta`
+- 图片已支持在首页内联渲染；当消息正文里出现 `{{图1}}` 但真实图片尚未挂载时，前端会先渲染“图片加载中”占位卡片，避免正文先显示占位符、结束时再突然闪现真图
+- 钉钉机器人链路未改造为流式发送，仍保持一次性 `replyMarkdown` 回包
+
 ## 当前现状
 
 - 首页聊天通过 [webhook 路由](/Users/xiemin/monter/dingtalk-admin-assistant/src/app/api/dingtalk/webhook/route.ts) 以一次性 JSON 方式返回完整回复
 - 前端 [HomeShell](/Users/xiemin/monter/dingtalk-admin-assistant/src/app/_components/home-shell.tsx) 只能在请求结束后一次性替换整条 assistant 消息
 - 外部知识库同步 `/ask` 已经完成接入，能够返回 `answer`、`source`、`pics`
 - `KnowledgeApiClient` 已补齐 `askStream()` 封装，但还没有接入业务链路
+
+以上是本设计编写时的实施前现状；当前仓库代码已不再处于这一阶段。
 
 ## 方案选择
 
@@ -54,6 +67,12 @@
   - 优先退到同步 `assistant.replyWithDebug()`
   - 保证首页至少还能正常返回完整答案
 
+当前落地时还补充了一个图片兜底策略：
+
+- 先尝试直接消费上游 `done.sources` 中的 `imageData`
+- 若只有 `imageUrl`，则在服务端补抓并转成 base64
+- 如果流式 `done` 阶段仍拿不到可用图片，再额外调用一次同步 `/ask`，使用 `pics` 补齐首页渲染所需的 `images`
+
 ### 3. 前端流式消费与消息更新
 
 首页前端改为：
@@ -67,6 +86,11 @@
   - `kind`
   - `meta`
 - 若流式失败则展示错误，或回退到一次性请求结果
+
+当前实现还增加了两个首页展示细节：
+
+- 正文中的 `{{图N}}` 会被替换成内联图片卡片，而不是保留原始占位符文本
+- 如果某张图已经在正文中内联显示，就不会再在底部“引用图片”区域重复渲染
 
 ### 4. 事件格式
 
@@ -91,7 +115,9 @@
 - `src/modules/knowledge/knowledge-api-client.ts`
 - `src/app/api/dingtalk/webhook/stream/route.ts`（新增）
 - `src/app/_components/home-shell.tsx`
+- `src/app/_components/chat-canvas.tsx`
 - `src/app/_components/home-shell.types.ts`
+- `src/app/globals.css`
 - 相关测试文件
 
 ## 测试策略
@@ -103,3 +129,9 @@
 3. `done` 事件能把 `citations/images` 一次性补齐
 4. 非知识问答仍能正常返回
 5. 流式失败时能回退到同步回复
+
+## 实际落地与原设计的差异
+
+- 原设计只要求在 `done` 时补齐图片；实际实现为了适配上游不稳定的图片返回，增加了 `imageUrl` 抓取和同步 `/ask.pics` 兜底
+- 原设计没有细化正文中的 `{{图N}}` 渲染；实际实现已经把它升级为内联图片卡片，并补了加载中占位态
+- 原设计明确不改钉钉 stream-handler；当前仍然保持这一边界，没有把钉钉机器人改成多段发送协议
