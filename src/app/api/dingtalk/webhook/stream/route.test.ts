@@ -19,7 +19,82 @@ function readSseEvents(payload: string) {
 describe("POST /api/dingtalk/webhook/stream", () => {
   afterEach(() => {
     vi.restoreAllMocks();
+    vi.doUnmock("@/modules/assistant/create-assistant-runtime");
     vi.resetModules();
+  });
+
+  it("logs the incoming sender identifiers and resolved user id", async () => {
+    const infoSpy = vi.spyOn(console, "info").mockImplementation(() => {});
+
+    vi.doMock("@/modules/assistant/create-assistant-runtime", () => ({
+      createAssistantRuntime: () => ({
+        analyzer: {
+          analyze: vi.fn().mockResolvedValue({
+            mode: "task",
+            intentConfidence: 0.91,
+            needKnowledge: false,
+            needTaskResolution: true,
+            toolPlan: "task",
+            topicShift: false,
+            intent: "task_request",
+            source: "model",
+          }),
+        },
+        assistant: {
+          replyWithDebug: vi.fn().mockResolvedValue({
+            reply: "已为你打开 OA 入口。",
+            conversationContext: [],
+            intent: {
+              mode: "task",
+              intentConfidence: 0.91,
+              needKnowledge: false,
+              needTaskResolution: true,
+              toolPlan: "task",
+              topicShift: false,
+              intent: "task_request",
+              source: "model",
+            },
+            resolution: {
+              kind: "task",
+              intent: "task_request",
+              title: "OA 入口",
+              entry: "https://oa.example.com",
+              guidance: "请按入口提示继续办理",
+            },
+            usedResponseGenerator: false,
+          }),
+        },
+      }),
+    }));
+
+    const post = await importFreshRoute();
+    await post(
+      new Request("http://localhost/api/dingtalk/webhook/stream", {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify({
+          sessionId: "home-task-log-1",
+          senderId: "0215084121561138029",
+          text: {
+            content: "帮我打开 OA",
+          },
+        }),
+      }),
+    );
+
+    expect(infoSpy).toHaveBeenCalledWith(
+      "[webhook/stream] incoming sender",
+      {
+        senderId: "0215***8029",
+        senderStaffId: undefined,
+        resolvedUserId: "0215***8029",
+        sessionId: "home-task-log-1",
+      },
+    );
+
+    vi.doUnmock("@/modules/assistant/create-assistant-runtime");
   });
 
   it("streams external knowledge chunks and done metadata for knowledge requests", async () => {
@@ -457,6 +532,96 @@ describe("POST /api/dingtalk/webhook/stream", () => {
         ],
         meta: {
           title: "考勤制度",
+        },
+      },
+    ]);
+
+    vi.doUnmock("@/modules/assistant/create-assistant-runtime");
+  });
+
+  it("does not call sync ask image fallback when the reply has no image placeholder or image sources", async () => {
+    const ask = vi.fn();
+
+    vi.doMock("@/modules/assistant/create-assistant-runtime", () => ({
+      createAssistantRuntime: () => ({
+        analyzer: {
+          analyze: vi.fn().mockResolvedValue({
+            mode: "internal_knowledge",
+            intentConfidence: 0.94,
+            needKnowledge: true,
+            needTaskResolution: false,
+            toolPlan: "knowledge",
+            topicShift: false,
+            intent: "knowledge_query",
+            source: "model",
+          }),
+        },
+        assistant: {
+          replyWithDebug: vi.fn(),
+        },
+        externalKnowledge: {
+          ask,
+          askStream: vi.fn().mockResolvedValue(
+            new Response(
+              [
+                'data: {"type":"chunk","content":"公司规章制度包括员工行为规范和福利制度。"}',
+                "",
+                'data: {"type":"done","sessionId":"rag-session-no-fallback","sources":[{"chunkId":3,"documentId":1,"title":"员工行为规范","chunkText":"员工行为规范条例","score":0.91,"sourceUrl":"https://alidocs.dingtalk.com/i/nodes/rules"}]}',
+                "",
+                "data: [DONE]",
+                "",
+              ].join("\n"),
+              {
+                headers: {
+                  "Content-Type": "text/event-stream",
+                },
+              },
+            ),
+          ),
+          getMappedSessionId: vi.fn().mockReturnValue(undefined),
+          setMappedSessionId: vi.fn(),
+        },
+      }),
+    }));
+
+    const post = await importFreshRoute();
+    const response = await post(
+      new Request("http://localhost/api/dingtalk/webhook/stream", {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify({
+          sessionId: "home-knowledge-no-fallback-1",
+          senderId: "user-1",
+          text: {
+            content: "公司规章制度是什么",
+          },
+        }),
+      }),
+    );
+
+    const payload = await response.text();
+    const events = readSseEvents(payload);
+
+    expect(ask).not.toHaveBeenCalled();
+    expect(events).toEqual([
+      {
+        type: "chunk",
+        content: "公司规章制度包括员工行为规范和福利制度。",
+      },
+      {
+        type: "done",
+        reply: "公司规章制度包括员工行为规范和福利制度。",
+        kind: "knowledge",
+        citations: [
+          {
+            documentTitle: "员工行为规范",
+            sourceUrl: "https://alidocs.dingtalk.com/i/nodes/rules",
+          },
+        ],
+        meta: {
+          title: "员工行为规范",
         },
       },
     ]);

@@ -10,6 +10,7 @@ import {
   quickLinks,
   recommendedTeammates,
 } from "../home-config";
+import { createStreamReplyAccumulator } from "./home-shell.stream";
 import { ChatCanvas } from "./chat-canvas";
 import { Composer } from "./composer";
 import { DrilldownCanvas } from "./drilldown-canvas";
@@ -340,25 +341,32 @@ export function HomeShell() {
       }
 
       if (contentType.includes("text/event-stream")) {
-        let streamedReply = "";
+        const replyAccumulator = createStreamReplyAccumulator({
+          onFlush(nextReply) {
+            replaceMessage(thinkingId, {
+              id: thinkingId,
+              role: "assistant",
+              content: nextReply || "AI 正在思考...",
+              mode: resolvedEntryMode ?? null,
+            });
+          },
+        });
         let finalized = false;
 
         await readStreamEvents(response, {
           onChunk(event) {
-            streamedReply += event.content ?? "";
-            replaceMessage(thinkingId, {
-              id: thinkingId,
-              role: "assistant",
-              content: streamedReply || "AI 正在思考...",
-              mode: resolvedEntryMode ?? null,
-            });
+            replyAccumulator.push(event.content ?? "");
           },
           onDone(event) {
             finalized = true;
+            replyAccumulator.finalize();
             replaceMessage(thinkingId, {
               id: thinkingId,
               role: "assistant",
-              content: event.reply ?? streamedReply ?? "暂时没有拿到回复。",
+              content:
+                event.reply ??
+                replyAccumulator.getReply() ??
+                "暂时没有拿到回复。",
               mode: resolvedEntryMode ?? null,
               kind: event.kind ?? null,
               citations: event.citations,
@@ -369,10 +377,11 @@ export function HomeShell() {
         });
 
         if (!finalized) {
+          replyAccumulator.finalize();
           replaceMessage(thinkingId, {
             id: thinkingId,
             role: "assistant",
-            content: streamedReply || "暂时没有拿到回复。",
+            content: replyAccumulator.getReply() || "暂时没有拿到回复。",
             mode: resolvedEntryMode ?? null,
           });
         }

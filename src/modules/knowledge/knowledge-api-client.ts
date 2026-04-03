@@ -398,6 +398,8 @@ export class KnowledgeApiClient {
 
   async askStream(data: RagAskRequest): Promise<Response> {
     const fetchImpl = this.config.fetchImpl ?? fetch;
+    console.log("🚀 [KnowledgeApiClient] 发起后端请求: POST /api/v1/knowledge/ask/stream");
+    console.log("📦 请求参数:", data);
     const response = await fetchImpl(this.resolveUrl("/api/v1/knowledge/ask/stream"), {
       method: "POST",
       headers: this.createHeaders(),

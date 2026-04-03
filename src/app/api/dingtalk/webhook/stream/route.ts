@@ -18,6 +18,18 @@ function getAssistantRuntime() {
   return assistantRuntime;
 }
 
+function maskIdentifier(value?: string) {
+  if (!value) {
+    return undefined;
+  }
+
+  if (value.length <= 8) {
+    return `${value.slice(0, 2)}***${value.slice(-2)}`;
+  }
+
+  return `${value.slice(0, 4)}***${value.slice(-4)}`;
+}
+
 type DingTalkWebhookPayload = {
   sessionId?: string;
   entryMode?: EntryMode;
@@ -200,6 +212,21 @@ async function buildAskFallbackImages(input: {
   }
 }
 
+function shouldAttemptAskFallbackImages(input: {
+  reply: string;
+  sources: StreamRagSource[];
+}) {
+  if (/\{\{[^}]+\}\}/u.test(input.reply)) {
+    return true;
+  }
+
+  return input.sources.some(
+    (source) =>
+      (typeof source.imageData === "string" && source.imageData.length > 0) ||
+      (typeof source.imageUrl === "string" && source.imageUrl.length > 0),
+  );
+}
+
 function buildSseHeaders() {
   return {
     "Content-Type": "text/event-stream; charset=utf-8",
@@ -357,8 +384,12 @@ async function createExternalKnowledgeStreamResponse(input: {
             const sources = Array.isArray(event.sources) ? event.sources : [];
             const citations = buildSourceCitations(sources);
             const hydratedImages = await hydrateSourceImages(sources);
+            const shouldFallbackImages = shouldAttemptAskFallbackImages({
+              reply,
+              sources,
+            });
             const fallbackImages =
-              hydratedImages.length > 0
+              hydratedImages.length > 0 || !shouldFallbackImages
                 ? undefined
                 : await buildAskFallbackImages({
                     query: input.query,
@@ -460,6 +491,12 @@ export async function POST(request: Request) {
     entryMode: body.entryMode,
     userId: body.senderStaffId || body.senderId,
   };
+  console.info("[webhook/stream] incoming sender", {
+    senderId: maskIdentifier(body.senderId),
+    senderStaffId: maskIdentifier(body.senderStaffId),
+    resolvedUserId: maskIdentifier(assistantInput.userId),
+    sessionId: assistantInput.sessionId,
+  });
   const runtime = getAssistantRuntime();
 
   try {

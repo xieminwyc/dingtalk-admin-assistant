@@ -115,6 +115,67 @@ describe("createAssistantRuntime", () => {
     ]);
   });
 
+  it("prefers real document titles from search results for citations", async () => {
+    const fetchMock = vi
+      .fn<typeof fetch>()
+      .mockResolvedValueOnce({
+        ok: true,
+        json: async () => ({
+          sessionId: "rag-session-title-1",
+          answer: "报销要求以制度原文为准。",
+          source: [
+            "https://alidocs.dingtalk.com/i/nodes/ydxXB52LJqe7j5PATQOZGldZJqjMp697",
+          ],
+          pics: [],
+        }),
+      } as Response)
+      .mockResolvedValueOnce({
+        ok: true,
+        json: async () => ({
+          items: [
+            {
+              chunkId: 1,
+              documentId: 2,
+              title: "沐腾费用报销流程及须知事项20260310.pdf",
+              chunkText: "报销要求以制度原文为准。",
+              score: 0.96,
+              sourceUrl:
+                "https://alidocs.dingtalk.com/i/nodes/ydxXB52LJqe7j5PATQOZGldZJqjMp697",
+            },
+          ],
+          total: 1,
+        }),
+      } as Response);
+
+    const provider = createExternalRagProvider({
+      ragApiUrl: "http://127.0.0.1:13718",
+      fetchImpl: fetchMock,
+    });
+
+    const result = await provider.search({
+      query: "报销要求是什么？",
+      userId: "user-title-1",
+      sessionId: "chat-title-1",
+    });
+
+    expect(fetchMock).toHaveBeenCalledTimes(2);
+    expect(fetchMock.mock.calls[1]?.[0]).toBe(
+      "http://127.0.0.1:13718/api/v1/knowledge/search",
+    );
+    expect(result).toEqual([
+      expect.objectContaining({
+        title: "沐腾费用报销流程及须知事项20260310.pdf",
+        citations: [
+          {
+            documentTitle: "沐腾费用报销流程及须知事项20260310.pdf",
+            sourceUrl:
+              "https://alidocs.dingtalk.com/i/nodes/ydxXB52LJqe7j5PATQOZGldZJqjMp697",
+          },
+        ],
+      }),
+    ]);
+  });
+
   it("reuses the mapped external session id on follow-up questions", async () => {
     const fetchMock = vi
       .fn<typeof fetch>()

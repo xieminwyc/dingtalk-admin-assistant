@@ -12,7 +12,11 @@ import {
   createModelIntentClassifier,
   type ModelIntentClassifier,
 } from "@/modules/intents/model-intent-classifier";
-import { KnowledgeApiClient } from "@/modules/knowledge/knowledge-api-client";
+import {
+  KnowledgeApiClient,
+  type RagAskRequest,
+  type RagSearchItem,
+} from "@/modules/knowledge/knowledge-api-client";
 import { ConversationContextService } from "@/modules/logging/conversation-context.service";
 import { ConversationLogRepository } from "@/modules/logging/conversation-log.repository";
 import {
@@ -30,7 +34,6 @@ import type {
 } from "@/modules/knowledge/retriever.types";
 import { sampleTaskCatalog } from "@/modules/tasks/sample-task-catalog";
 import { TaskCatalogService } from "@/modules/tasks/task-catalog.service";
-import type { RagAskRequest } from "@/modules/knowledge/knowledge-api-client";
 
 type RuntimeEnvInput = Partial<Record<string, string | undefined>>;
 
@@ -317,6 +320,36 @@ function buildCitationLabel(sourceUrl: string): string {
   }
 }
 
+function shouldResolveCitationTitle(sourceUrl: string): boolean {
+  try {
+    const url = new URL(sourceUrl);
+    const segments = url.pathname
+      .split("/")
+      .map((segment) => segment.trim())
+      .filter(Boolean);
+
+    return (
+      url.hostname === "alidocs.dingtalk.com" && segments.includes("nodes")
+    );
+  } catch {
+    return false;
+  }
+}
+
+function buildTitleBySourceUrl(items: RagSearchItem[]): Map<string, string> {
+  const titleBySourceUrl = new Map<string, string>();
+
+  for (const item of items) {
+    if (!item.sourceUrl || !item.title || titleBySourceUrl.has(item.sourceUrl)) {
+      continue;
+    }
+
+    titleBySourceUrl.set(item.sourceUrl, item.title);
+  }
+
+  return titleBySourceUrl;
+}
+
 export function createExternalRagProvider(input: {
   ragApiUrl: string;
   ragApiKey?: string;
@@ -356,9 +389,30 @@ export function createExternalRagProvider(input: {
           return [];
         }
 
-        const citations = response.source?.map(
+        const sourceUrls = response.source ?? [];
+        let titleBySourceUrl = new Map<string, string>();
+
+        if (sourceUrls.some(shouldResolveCitationTitle)) {
+          try {
+            const searchResponse = await apiClient.search({
+              query,
+              operatorId: userId || "unknown",
+              maxResults: 10,
+              excludeImageData: true,
+            });
+            titleBySourceUrl = buildTitleBySourceUrl(searchResponse.items);
+          } catch (error) {
+            console.warn(
+              "[ExternalRagProvider] failed to resolve citation titles from search:",
+              error,
+            );
+          }
+        }
+
+        const citations = sourceUrls.map(
           (sourceUrl): KnowledgeCitation => ({
-            documentTitle: buildCitationLabel(sourceUrl),
+            documentTitle:
+              titleBySourceUrl.get(sourceUrl) ?? buildCitationLabel(sourceUrl),
             sourceUrl,
           }),
         );

@@ -111,6 +111,7 @@ describe("KnowledgeApiClient", () => {
   });
 
   it("posts to the documented ask stream endpoint", async () => {
+    const logSpy = vi.spyOn(console, "log").mockImplementation(() => {});
     const fetchMock = vi.fn<typeof fetch>().mockResolvedValue({
       ok: true,
       text: async () =>
@@ -131,6 +132,14 @@ describe("KnowledgeApiClient", () => {
       "http://127.0.0.1:13718/api/v1/knowledge/ask/stream",
     );
     expect(fetchMock.mock.calls[0]?.[1]?.method).toBe("POST");
+    expect(logSpy).toHaveBeenCalledWith(
+      "🚀 [KnowledgeApiClient] 发起后端请求: POST /api/v1/knowledge/ask/stream",
+    );
+    expect(logSpy).toHaveBeenCalledWith("📦 请求参数:", {
+      question: "出差住宿标准是多少？",
+      operatorId: "user-3",
+      sessionId: "session-3",
+    });
   });
 
   it("deletes knowledge sessions through the documented session endpoint", async () => {
