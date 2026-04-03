@@ -26,6 +26,7 @@ type DingTalkRequestAuthCodeOptions = {
 type DingTalkBridge = {
   ready?: (callback: () => void) => void;
   error?: (callback: (error: unknown) => void) => void;
+  requestAuthCode?: (options: DingTalkRequestAuthCodeOptions) => void;
   runtime?: {
     permission?: {
       requestAuthCode?: (options: DingTalkRequestAuthCodeOptions) => void;
@@ -246,7 +247,11 @@ function requestAuthCode(input: {
   clientId?: string;
 }) {
   return new Promise<string | undefined>((resolve) => {
-    const requestCode = input.bridge.runtime?.permission?.requestAuthCode;
+    // Prefer top-level dd.requestAuthCode (JSAPI 3.x, returns OAuth2 code)
+    // over dd.runtime.permission.requestAuthCode (legacy, returns old-style code)
+    const requestCode =
+      input.bridge.requestAuthCode ??
+      input.bridge.runtime?.permission?.requestAuthCode;
 
     if (!requestCode) {
       resolve(undefined);
@@ -360,7 +365,10 @@ export async function resolveDingTalkSenderIdentity(
 
   if (options?.corpId && options.resolveUserIdFromAuthCode) {
     for (const candidate of bridges) {
-      if (!candidate.bridge?.runtime?.permission?.requestAuthCode) {
+      if (
+        !candidate.bridge?.requestAuthCode &&
+        !candidate.bridge?.runtime?.permission?.requestAuthCode
+      ) {
         continue;
       }
 
