@@ -250,10 +250,12 @@ function requestAuthCode(input: {
   clientId?: string;
 }) {
   return new Promise<string | undefined>((resolve) => {
-    // Use the legacy dd.runtime.permission.requestAuthCode only —
-    // the top-level dd.requestAuthCode requires clientId and produces
-    // OAuth2 codes incompatible with the old topapi endpoint.
-    const requestCode = input.bridge.runtime?.permission?.requestAuthCode;
+    // Prefer top-level dd.requestAuthCode (JSAPI 3.x, returns OAuth2 code
+    // when clientId is provided) over the legacy runtime.permission path.
+    // The backend V2 fallback handles OAuth2 codes via userAccessToken flow.
+    const requestCode =
+      input.bridge.requestAuthCode ??
+      input.bridge.runtime?.permission?.requestAuthCode;
 
     if (!requestCode) {
       resolve(undefined);
@@ -263,6 +265,7 @@ function requestAuthCode(input: {
     try {
       requestCode({
         corpId: input.corpId,
+        clientId: input.clientId,
         onSuccess(payload) {
           resolve(
             normalizeSenderStaffId(payload.code) ||
@@ -398,6 +401,7 @@ export async function resolveDingTalkSenderIdentity(
         !candidate.bridge?.requestAuthCode &&
         !candidate.bridge?.runtime?.permission?.requestAuthCode
       ) {
+
         continue;
       }
 
