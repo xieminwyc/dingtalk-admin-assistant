@@ -229,42 +229,39 @@ export function createDingTalkIdentityService(input: {
 
   return {
     async resolveUserIdFromAuthCode(authCode: string) {
+      // 1. Try OAuth2 v2 path first (works with codes from login.dingtalk.com redirect).
+      //    Exchange code → userAccessToken → unionId → userId.
+      const userAccessToken = await api
+        .getUserAccessTokenV2(input.clientId, input.clientSecret, authCode)
+        .catch(() => undefined);
+
+      if (userAccessToken) {
+        const unionId = await api
+          .getUserUnionIdV2(userAccessToken)
+          .catch(() => undefined);
+
+        if (unionId) {
+          const accessToken = await api.getAccessToken(
+            input.clientId,
+            input.clientSecret,
+          );
+          const userId = await api
+            .getUserIdByUnionId(accessToken, unionId)
+            .catch(() => undefined);
+
+          if (userId) {
+            return userId;
+          }
+        }
+      }
+
+      // 2. Fallback: old endpoint (topapi/v2/user/getuserinfo) for legacy JSAPI codes.
       const accessToken = await api.getAccessToken(
         input.clientId,
         input.clientSecret,
       );
 
-      // 1. Try old endpoint first (topapi/v2/user/getuserinfo).
-      try {
-        const userId = await api.getUserIdByAuthCode(accessToken, authCode);
-
-        if (userId) {
-          return userId;
-        }
-      } catch (err) {
-        console.warn(
-          "[identity] old getUserIdByAuthCode failed, trying OAuth2 v2 fallback:",
-          err instanceof Error ? err.message : err,
-        );
-      }
-
-      // 2. Fallback: treat the code as an OAuth2 authorization_code.
-      //    Exchange code → userAccessToken → unionId → userId.
-      const userAccessToken = await api.getUserAccessTokenV2(
-        input.clientId,
-        input.clientSecret,
-        authCode,
-      );
-
-      if (!userAccessToken) {
-        return undefined;
-      }
-
-      const unionId = await api.getUserUnionIdV2(userAccessToken);
-
-      if (!unionId) {
-        return undefined;
-      }
+      return api.getUserIdByAuthCode(accessToken, authCode);
 
       return api.getUserIdByUnionId(accessToken, unionId);
     },

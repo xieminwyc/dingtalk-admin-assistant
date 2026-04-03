@@ -491,25 +491,6 @@ export async function resolveDingTalkSenderIdentity(
     }
   }
 
-  // Last resort: initiate OAuth2 redirect to get a proper authorization code.
-  // Guard with sessionStorage to prevent infinite redirect loops.
-  if (
-    options?.clientId &&
-    !win.sessionStorage?.getItem(OAUTH2_REDIRECT_ATTEMPTED_KEY)
-  ) {
-    win.sessionStorage?.setItem(OAUTH2_REDIRECT_ATTEMPTED_KEY, "1");
-
-    const redirectUri = win.location.origin + win.location.pathname;
-    const authUrl = new URL("https://login.dingtalk.com/oauth2/auth");
-    authUrl.searchParams.set("redirect_uri", redirectUri);
-    authUrl.searchParams.set("response_type", "code");
-    authUrl.searchParams.set("client_id", options.clientId);
-    authUrl.searchParams.set("scope", "openid corpid");
-    authUrl.searchParams.set("prompt", "consent");
-
-    win.location.href = authUrl.toString();
-  }
-
   return {
     senderStaffId: undefined,
     source: "unavailable",
