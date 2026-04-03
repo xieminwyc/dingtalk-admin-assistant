@@ -620,48 +620,61 @@ export function HomeShell({ dingtalkCorpId }: { dingtalkCorpId?: string }) {
         </div>
       </header>
 
-      {debugSender.status === "pending" ? (
-        <div
-          style={{
-            background: "rgba(0,0,0,0.5)",
-            color: "#ccc",
-            fontSize: 11,
-            padding: "2px 8px",
-            textAlign: "center",
-          }}
-        >
-          身份解析中…
-        </div>
-      ) : debugSender.status === "error" ? (
-        <div
-          style={{
-            background: "rgba(180,0,0,0.8)",
-            color: "#fff",
-            fontSize: 11,
-            padding: "2px 8px",
-            textAlign: "center",
-          }}
-        >
-          uid 解析失败: {debugSender.message}
-        </div>
-      ) : (
-        <div
-          style={{
-            background: "rgba(0,0,0,0.6)",
-            color: "#fff",
-            fontSize: 11,
-            padding: "2px 8px",
-            textAlign: "center",
-            letterSpacing: "0.02em",
-          }}
-        >
-          uid:{" "}
-          <strong>
-            {debugSender.identity.senderStaffId ?? "(空)"}
-          </strong>
-          {" · "}src: {debugSender.identity.source}
-        </div>
-      )}
+      <div
+        style={{
+          position: "fixed",
+          bottom: 80,
+          left: 0,
+          right: 0,
+          zIndex: 9999,
+          textAlign: "center",
+          pointerEvents: "none",
+        }}
+      >
+        {debugSender.status === "pending" ? (
+          <span
+            style={{
+              display: "inline-block",
+              background: "rgba(0,0,0,0.65)",
+              color: "#ccc",
+              fontSize: 11,
+              padding: "3px 10px",
+              borderRadius: 4,
+            }}
+          >
+            身份解析中…
+          </span>
+        ) : debugSender.status === "error" ? (
+          <span
+            style={{
+              display: "inline-block",
+              background: "rgba(180,0,0,0.85)",
+              color: "#fff",
+              fontSize: 11,
+              padding: "3px 10px",
+              borderRadius: 4,
+            }}
+          >
+            uid 解析失败: {debugSender.message}
+          </span>
+        ) : (
+          <span
+            style={{
+              display: "inline-block",
+              background: "rgba(0,0,0,0.75)",
+              color: "#fff",
+              fontSize: 11,
+              padding: "3px 10px",
+              borderRadius: 4,
+              letterSpacing: "0.02em",
+            }}
+          >
+            uid:{" "}
+            <strong>{debugSender.identity.senderStaffId ?? "(空)"}</strong>
+            {" · "}src: {debugSender.identity.source}
+          </span>
+        )}
+      </div>
 
       <HistoryDrawer
         isOpen={isHistoryOpen}
