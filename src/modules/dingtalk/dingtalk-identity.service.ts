@@ -262,8 +262,6 @@ export function createDingTalkIdentityService(input: {
       );
 
       return api.getUserIdByAuthCode(accessToken, authCode);
-
-      return api.getUserIdByUnionId(accessToken, unionId);
     },
   };
 }
