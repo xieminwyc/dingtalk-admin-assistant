@@ -72,6 +72,10 @@ The pipeline is assembled in `create-assistant-runtime.ts` which wires all modul
 
 OAuth2 redirect flow only — JSAPI `requestAuthCode` does NOT work (returns 40078). Full details in `docs/dingtalk-h5-identity.md`.
 
+### Image Recognition
+
+DingTalk richText images are ingested and processed via the vision model. Images take a fast-path: when `imageUrl` is present, the query skips intent analysis and goes directly to `ResponseGenerator`. See `docs/dingtalk-image-debugging.md` for troubleshooting.
+
 ## Testing
 
 - **Framework**: Vitest with jsdom environment
@@ -86,6 +90,10 @@ Required: `DINGTALK_CLIENT_ID`, `DINGTALK_CLIENT_SECRET`
 Optional: `DINGTALK_CORP_ID`, `DATABASE_URL`, `RAG_API_URL`, `RAG_API_KEY`, `SILICONFLOW_API_KEY`, `SILICONFLOW_BASE_URL`, `SILICONFLOW_MODEL`
 
 Schema validated by zod in `src/config/env.ts`. Local dev uses `.env.local`.
+
+**Vision model requirement**: If using image recognition, `SILICONFLOW_MODEL` must be a vision-capable model (e.g., `Qwen/Qwen3-VL-8B-Instruct`). Pure text models (e.g., `Qwen/Qwen2.5-7B-Instruct`) will fail on image queries.
+
+**Vercel deployment**: Deployed at https://dingtalk-admin-assistant.vercel.app. Use `npx vercel env update` to change production env vars. Use `printf "value"` (not `echo`) to avoid trailing newlines when setting variables.
 
 ## Language
 
