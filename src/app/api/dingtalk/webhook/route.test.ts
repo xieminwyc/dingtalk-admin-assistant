@@ -50,6 +50,21 @@ function buildGeneratedReply(query: string) {
   return "结论\n年假天数按司龄计算，试用期不单独享有年假，具体以 HR 制度公告为准。\n\n适用范围\n适用于正式员工年假政策查询";
 }
 
+function extractUserText(
+  content?:
+    | string
+    | Array<
+        | { type: "text"; text: string }
+        | { type: "image_url"; image_url: { url: string } }
+      >
+) {
+  if (typeof content === "string") {
+    return content;
+  }
+
+  return content?.find((item) => item.type === "text")?.text ?? "";
+}
+
 describe("POST /api/dingtalk/webhook", () => {
   beforeEach(() => {
     process.env.SILICONFLOW_API_KEY = "test-key";
@@ -58,13 +73,22 @@ describe("POST /api/dingtalk/webhook", () => {
 
     vi.spyOn(globalThis, "fetch").mockImplementation(async (_input, init) => {
       const requestBody = JSON.parse(String(init?.body ?? "{}")) as {
-        messages?: Array<{ content?: string }>;
+        messages?: Array<{
+          content?:
+            | string
+            | Array<
+                | { type: "text"; text: string }
+                | { type: "image_url"; image_url: { url: string } }
+              >;
+        }>;
       };
       const query =
-        requestBody.messages?.[1]?.content?.split("当前用户消息：")[1]?.trim() ?? "";
+        extractUserText(requestBody.messages?.[1]?.content)
+          .split("当前用户消息：")[1]
+          ?.trim() ?? "";
       const systemPrompt = requestBody.messages?.[0]?.content ?? "";
 
-      if (String(systemPrompt).includes("回复生成器")) {
+      if (!String(systemPrompt).includes("决策引擎")) {
         return Response.json({
           choices: [
             {
@@ -118,6 +142,78 @@ describe("POST /api/dingtalk/webhook", () => {
     expect(response.status).toBe(200);
     expect(data.reply).toContain("事务入口");
     expect(data.reply).toContain("https://oa.example.com/tasks/leave-application");
+  });
+
+  it("accepts image-only requests and forwards imageUrl to the model", async () => {
+    vi.resetModules();
+    vi.restoreAllMocks();
+
+    process.env.SILICONFLOW_API_KEY = "test-key";
+    process.env.SILICONFLOW_BASE_URL = "https://api.siliconflow.cn/v1";
+    process.env.SILICONFLOW_MODEL = "Qwen/Qwen3-VL-8B-Instruct";
+
+    const fetchMock = vi.spyOn(globalThis, "fetch").mockImplementation(async (_input, init) => {
+      const requestBody = JSON.parse(String(init?.body ?? "{}")) as {
+        messages?: Array<{
+          content?:
+            | string
+            | Array<
+                | { type: "text"; text: string }
+                | { type: "image_url"; image_url: { url: string } }
+              >;
+        }>;
+      };
+      const userContent = requestBody.messages?.[1]?.content;
+
+      if (Array.isArray(userContent)) {
+        expect(userContent).toEqual([
+          {
+            type: "text",
+            text: expect.stringContaining("当前用户消息：请识别这张图片内容"),
+          },
+          {
+            type: "image_url",
+            image_url: {
+              url: "data:image/png;base64,abc123",
+            },
+          },
+        ]);
+
+        return Response.json({
+          choices: [
+            {
+              message: {
+                content: "这是图片识别结果。",
+              },
+            },
+          ],
+        });
+      }
+
+      throw new Error("expected multimodal content array");
+    });
+
+    const { POST: freshPost } = await import("./route");
+    const request = new Request("http://localhost/api/dingtalk/webhook", {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+      },
+      body: JSON.stringify({
+        sessionId: "page-debug-image-only",
+        imageUrl: "data:image/png;base64,abc123",
+      }),
+    });
+
+    const response = await freshPost(request);
+    const data = (await response.json()) as {
+      reply?: string;
+      error?: string;
+    };
+
+    expect(response.status).toBe(200);
+    expect(data.reply).toBe("这是图片识别结果。");
+    expect(fetchMock).toHaveBeenCalledTimes(1);
   });
 
   it("returns a knowledge reply for a knowledge request", async () => {
@@ -202,13 +298,22 @@ describe("POST /api/dingtalk/webhook", () => {
 
     const fetchMock = vi.spyOn(globalThis, "fetch").mockImplementation(async (_input, init) => {
       const requestBody = JSON.parse(String(init?.body ?? "{}")) as {
-        messages?: Array<{ content?: string }>;
+        messages?: Array<{
+          content?:
+            | string
+            | Array<
+                | { type: "text"; text: string }
+                | { type: "image_url"; image_url: { url: string } }
+              >;
+        }>;
       };
       const query =
-        requestBody.messages?.[1]?.content?.split("当前用户消息：")[1]?.trim() ?? "";
+        extractUserText(requestBody.messages?.[1]?.content)
+          .split("当前用户消息：")[1]
+          ?.trim() ?? "";
       const systemPrompt = requestBody.messages?.[0]?.content ?? "";
 
-      if (String(systemPrompt).includes("回复生成器")) {
+      if (!String(systemPrompt).includes("决策引擎")) {
         throw new Error("response generator should not be called for direct open_response");
       }
 

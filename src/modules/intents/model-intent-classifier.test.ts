@@ -64,11 +64,11 @@ describe("createModelIntentClassifier", () => {
     });
     expect(infoSpy).toHaveBeenNthCalledWith(
       1,
-      '[siliconflow] request model="Qwen/Qwen3-8B" query="我要请假"'
+      '[siliconflow] request model="Qwen/Qwen3-8B" query="我要请假" hasImage=false'
     );
     expect(infoSpy).toHaveBeenNthCalledWith(
       2,
-      '[siliconflow] response mode=task query="我要请假"'
+      expect.stringContaining('[siliconflow] response mode=task query="我要请假"')
     );
   });
 
@@ -117,6 +117,68 @@ describe("createModelIntentClassifier", () => {
     expect(requestBody.messages[1]?.content).toContain(
       "assistant: 我可以帮你查制度、找办理入口。"
     );
+  });
+
+  it("does not force json response_format for multimodal requests", async () => {
+    const fetchMock = vi.fn().mockResolvedValue({
+      ok: true,
+      json: async () => ({
+        choices: [
+          {
+            message: {
+              content: JSON.stringify({
+                mode: "open_response",
+                intentConfidence: 0.9,
+                needKnowledge: false,
+                needTaskResolution: false,
+                toolPlan: "none",
+                topicShift: false,
+                reply: "这是一张报销流程截图。"
+              })
+            }
+          }
+        ]
+      })
+    });
+
+    const classifier = createModelIntentClassifier({
+      apiKey: "test-key",
+      baseUrl: "https://api.siliconflow.cn/v1",
+      model: "Qwen/Qwen3-VL-8B-Instruct",
+      fetch: fetchMock
+    });
+
+    await classifier.classify({
+      query: "请识别这张图片内容",
+      imageUrl: "data:image/png;base64,abc123"
+    });
+
+    const requestBody = JSON.parse(String(fetchMock.mock.calls[0]?.[1]?.body)) as {
+      response_format?: { type: string };
+      messages: Array<{
+        role: string;
+        content:
+          | string
+          | Array<
+              | { type: "text"; text: string }
+              | { type: "image_url"; image_url: { url: string } }
+            >;
+      }>;
+    };
+
+    expect(requestBody.response_format).toBeUndefined();
+    expect(requestBody.messages[1]?.content).toEqual([
+      {
+        type: "text",
+        text: expect.stringContaining("当前用户消息：请识别这张图片内容")
+      },
+      {
+        type: "image_url",
+        image_url: {
+          url: "data:image/png;base64,abc123"
+        }
+      }
+    ]);
   });
 
   it("teaches the model to treat short policy phrases as internal knowledge queries", async () => {
@@ -477,7 +539,7 @@ describe("createModelIntentClassifier", () => {
       clarifyQuestion: "当前系统开小差了，请稍后再试。"
     });
     expect(infoSpy).toHaveBeenCalledWith(
-      '[siliconflow] request model="Qwen/Qwen3-8B" query="这个怎么办"'
+      '[siliconflow] request model="Qwen/Qwen3-8B" query="这个怎么办" hasImage=false'
     );
     expect(warnSpy).toHaveBeenCalledWith(
       '[siliconflow] response mode=clarify query="这个怎么办" reason="network down"'

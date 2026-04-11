@@ -1,4 +1,4 @@
-import { describe, expect, it, vi } from "vitest";
+import { describe, expect, it, vi, type Mock } from "vitest";
 
 import { createAssistantService } from "./assistant.service";
 import type {
@@ -168,8 +168,132 @@ describe("createAssistantService", () => {
     }
   });
 
+  it("bypasses the analyzer and routes image requests directly to the response generator", async () => {
+    vi.resetModules();
+    const routeSpy = vi.fn(async () => {
+      throw new Error("router should not be called for direct image responses");
+    });
+
+    vi.doMock("../router/request-router", async () => {
+      const actual = await vi.importActual<typeof import("../router/request-router")>(
+        "../router/request-router"
+      );
+
+      return {
+        ...actual,
+        createRequestRouter: vi.fn(() => ({
+          route: routeSpy
+        }))
+      };
+    });
+
+    try {
+      const { createAssistantService: createIsolatedAssistantService } = await import(
+        "./assistant.service"
+      );
+      const analyzer = {
+        analyze: vi.fn(async () => buildIntentAnalysis("clarify"))
+      };
+      const generate = vi.fn().mockResolvedValue("这是一张报销单截图。");
+
+      const assistant = createIsolatedAssistantService({
+        localRetriever: {
+          async search() {
+            throw new Error("retriever should not be called for direct image responses");
+          }
+        },
+        analyzer,
+        taskCatalog: createTaskCatalog(),
+        responseGenerator: {
+          generate
+        }
+      });
+
+      const result = await assistant.replyWithDebug({
+        query: "这个里面是什么",
+        sessionId: "session-image-open-response",
+        imageUrls: [
+          "data:image/png;base64,abc123",
+          "data:image/png;base64,def456",
+        ]
+      });
+
+      expect(result.reply).toBe("这是一张报销单截图。");
+      expect(result.intent).toEqual(
+        expect.objectContaining({
+          mode: "open_response",
+          intent: "smalltalk",
+          source: "fallback"
+        })
+      );
+      expect(result.resolution).toEqual({
+        kind: "open_response",
+        intent: "smalltalk",
+        reply: "这是一张报销单截图。"
+      });
+      expect(result.usedResponseGenerator).toBe(true);
+      expect(generate).toHaveBeenCalledWith({
+        query: "这个里面是什么",
+        entryMode: undefined,
+        conversationContext: [],
+        imageUrls: [
+          "data:image/png;base64,abc123",
+          "data:image/png;base64,def456",
+        ],
+        resolution: {
+          kind: "open_response",
+          intent: "smalltalk",
+          reply: "这个里面是什么"
+        }
+      });
+      expect(analyzer.analyze).not.toHaveBeenCalled();
+      expect(routeSpy).not.toHaveBeenCalled();
+    } finally {
+      vi.doUnmock("../router/request-router");
+      vi.resetModules();
+    }
+  });
+
+  it("returns the default error prompt when direct image generation throws", async () => {
+    const analyzer = {
+      analyze: vi.fn(async () => buildIntentAnalysis("clarify"))
+    };
+    const generate = vi.fn().mockRejectedValue(new Error("vision provider down"));
+    const warnSpy = vi.spyOn(console, "warn").mockImplementation(() => {});
+
+    const assistant = createAssistantService({
+      localRetriever: {
+        async search() {
+          throw new Error("retriever should not be called for direct image responses");
+        }
+      },
+      analyzer,
+      taskCatalog: createTaskCatalog(),
+      responseGenerator: {
+        generate
+      }
+    });
+
+    const reply = await assistant.reply({
+      query: "请识别这张图片内容",
+      imageUrl: "data:image/png;base64,abc123"
+    });
+
+    expect(reply).toContain("当前系统开小差了，请稍后再试。");
+    expect(analyzer.analyze).not.toHaveBeenCalled();
+    expect(generate).toHaveBeenCalledTimes(1);
+    expect(warnSpy).toHaveBeenCalledWith(
+      "[assistant] direct image generation failed",
+      expect.objectContaining({
+        query: "请识别这张图片内容",
+        reason: "vision provider down",
+        imageUrlKind: "data-url"
+      }),
+    );
+  });
+
   it("keeps loaded context and logs for the direct open_response fast path", async () => {
-    const append = vi.fn(async () => undefined);
+    const append = vi.fn(async () => ({}) as any);
     const generate = vi.fn().mockResolvedValue("不应该被调用");
     const loadRecentContext = vi.fn(async () => [
       { role: "user" as const, content: "你能做什么？" }
@@ -186,7 +310,8 @@ describe("createAssistantService", () => {
           expect(input).toEqual({
             query: "你好",
             conversationContext: [{ role: "user", content: "你能做什么？" }],
-            entryMode: undefined
+            entryMode: undefined,
+            imageUrls: []
           });
 
           return buildIntentAnalysis("open_response", {
@@ -222,14 +347,15 @@ describe("createAssistantService", () => {
     expect(result.usedResponseGenerator).toBe(false);
     expect(generate).not.toHaveBeenCalled();
     expect(append).toHaveBeenCalledTimes(2);
-    expect(append.mock.calls[0]?.[0]).toMatchObject({
+    const appendMock = append as Mock;
+    expect(appendMock.mock.calls[0]?.[0]).toMatchObject({
       sessionId: "session-direct-open-response",
       conversationId: "session-direct-open-response",
       role: "user",
       content: "你好",
       routeType: "smalltalk"
     });
-    expect(append.mock.calls[1]?.[0]).toMatchObject({
+    expect(appendMock.mock.calls[1]?.[0]).toMatchObject({
       sessionId: "session-direct-open-response",
       conversationId: "session-direct-open-response",
       role: "assistant",
@@ -553,6 +679,33 @@ describe("createAssistantService", () => {
     expect(reply).toContain("年假按司龄计算");
   });
 
+  it("does not call the response generator for clarification results without images", async () => {
+    const generate = vi.fn().mockResolvedValue("不应该被调用");
+    const assistant = createAssistantService({
+      localRetriever: {
+        async search() {
+          throw new Error("retriever should not be called for clarification");
+        }
+      },
+      analyzer: {
+        async analyze() {
+          return buildIntentAnalysis("clarify");
+        }
+      },
+      taskCatalog: createTaskCatalog(),
+      responseGenerator: {
+        generate
+      }
+    });
+
+    const reply = await assistant.reply({
+      query: "这个怎么办"
+    });
+
+    expect(reply).toContain("请再具体描述一下问题");
+    expect(generate).not.toHaveBeenCalled();
+  });
+
   it("loads session context for the analyzer and persists both user and assistant messages", async () => {
     const append = vi.fn(async (input: any) => ({} as any));
     const loadRecentContext = vi.fn(async () => [
@@ -561,13 +714,15 @@ describe("createAssistantService", () => {
     ]);
     const analyzer: IntentAnalyzer = {
       async analyze(input) {
-        expect(input).toEqual({
-          query: "那请假怎么申请",
-          conversationContext: [
-            { role: "user", content: "你能做什么？" },
-            { role: "assistant", content: "我可以帮你查制度、找办理入口。" }
-          ]
-        });
+          expect(input).toEqual({
+            query: "那请假怎么申请",
+            conversationContext: [
+              { role: "user", content: "你能做什么？" },
+              { role: "assistant", content: "我可以帮你查制度、找办理入口。" }
+            ],
+            entryMode: undefined,
+            imageUrls: []
+          });
 
         return {
           ...buildIntentAnalysis("task")
@@ -596,7 +751,8 @@ describe("createAssistantService", () => {
       sessionId: "session-1"
     });
 
-    expect(reply).toContain("事务入口");
+    expect(reply).toContain("请假申请");
+    expect(reply).toContain("https://oa.example.com/tasks/leave-application");
     expect(loadRecentContext).toHaveBeenCalledWith("session-1", {
       maxTurns: 6,
       ttlMs: 1800000

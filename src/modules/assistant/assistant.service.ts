@@ -22,6 +22,8 @@ export type AssistantReplyInput = {
   conversationId?: string;
   userId?: string;
   entryMode?: EntryMode;
+  imageUrl?: string;
+  imageUrls?: string[];
 };
 
 export type AssistantDebugReply = {
@@ -41,6 +43,7 @@ type ConversationContextLoader = {
 
 const DEFAULT_CONTEXT_TTL_MS = 30 * 60 * 1000;
 const DEFAULT_CONTEXT_TURNS = 6;
+const DEFAULT_IMAGE_REPLY_ERROR_PROMPT = "当前系统开小差了，请稍后再试。";
 
 function normalizeReplyInput(
   input: string | AssistantReplyInput,
@@ -52,6 +55,28 @@ function normalizeReplyInput(
   }
 
   return input;
+}
+
+function normalizeImageUrls(input: {
+  imageUrl?: string;
+  imageUrls?: string[];
+}) {
+  if (Array.isArray(input.imageUrls)) {
+    const normalized = input.imageUrls
+      .filter((imageUrl): imageUrl is string => typeof imageUrl === "string")
+      .map((imageUrl) => imageUrl.trim())
+      .filter(Boolean);
+
+    if (normalized.length > 0) {
+      return normalized;
+    }
+  }
+
+  if (typeof input.imageUrl === "string" && input.imageUrl.trim().length > 0) {
+    return [input.imageUrl.trim()];
+  }
+
+  return [];
 }
 
 function buildDefaultIntentAnalysis(): IntentAnalysis {
@@ -77,6 +102,49 @@ function buildClarificationIntentAnalysis(): IntentAnalysis {
     topicShift: false,
     intent: "unknown",
     source: "fallback",
+  };
+}
+
+function buildDirectImageIntentAnalysis(): IntentAnalysis {
+  return {
+    mode: "open_response",
+    intentConfidence: 1,
+    needKnowledge: false,
+    needTaskResolution: false,
+    toolPlan: "none",
+    topicShift: false,
+    intent: "smalltalk",
+    source: "fallback",
+  };
+}
+
+function estimateImageBytes(imageUrl?: string) {
+  if (!imageUrl) {
+    return 0;
+  }
+
+  const trimmed = imageUrl.trim();
+  const commaIndex = trimmed.indexOf(",");
+
+  if (!trimmed.startsWith("data:") || commaIndex < 0) {
+    return trimmed.length;
+  }
+
+  const payload = trimmed.slice(commaIndex + 1);
+  const padding = payload.endsWith("==") ? 2 : payload.endsWith("=") ? 1 : 0;
+  return Math.max(0, Math.floor((payload.length * 3) / 4) - padding);
+}
+
+function describeImageInput(imageUrls: string[]) {
+  const firstImageUrl = imageUrls[0];
+
+  return {
+    imageCount: imageUrls.length,
+    imageUrlKind: firstImageUrl?.startsWith("data:") ? "data-url" : "remote-url",
+    imageBytes: imageUrls.reduce(
+      (total, imageUrl) => total + estimateImageBytes(imageUrl),
+      0,
+    ),
   };
 }
 
@@ -159,9 +227,101 @@ export function createAssistantService(input: {
     rawInput: string | AssistantReplyInput,
   ): Promise<AssistantDebugReply> {
     const replyInput = normalizeReplyInput(rawInput);
+    const imageUrls = normalizeImageUrls(replyInput);
     const conversationContext = await loadConversationContext(
       replyInput.sessionId,
     );
+
+    if (imageUrls.length > 0 && input.responseGenerator) {
+      let generatedReply: string | null = null;
+
+      try {
+        generatedReply = await input.responseGenerator.generate({
+          query: replyInput.query,
+          entryMode: replyInput.entryMode,
+          conversationContext,
+          resolution: {
+            kind: "open_response",
+            intent: "smalltalk",
+            reply: replyInput.query,
+          },
+          imageUrls,
+        });
+      } catch (error) {
+        const reason = error instanceof Error ? error.message : String(error);
+
+        console.warn("[assistant] direct image generation failed", {
+          query: replyInput.query,
+          sessionId: replyInput.sessionId,
+          conversationId: replyInput.conversationId,
+          reason,
+          ...describeImageInput(imageUrls),
+        });
+        generatedReply = null;
+      }
+
+      if (!generatedReply?.trim()) {
+        console.warn("[assistant] direct image generation fell back", {
+          query: replyInput.query,
+          sessionId: replyInput.sessionId,
+          conversationId: replyInput.conversationId,
+          reason: "empty-reply",
+          ...describeImageInput(imageUrls),
+        });
+
+        const fallbackResolution = buildClarificationResolution({
+          prompt: DEFAULT_IMAGE_REPLY_ERROR_PROMPT,
+        });
+
+        return {
+          reply: buildAssistantReply(fallbackResolution),
+          conversationContext,
+          intent: {
+            ...buildClarificationIntentAnalysis(),
+            clarifyQuestion: DEFAULT_IMAGE_REPLY_ERROR_PROMPT,
+          },
+          resolution: fallbackResolution,
+          usedResponseGenerator: false,
+        };
+      }
+
+      const intent = buildDirectImageIntentAnalysis();
+      const resolution: AssistantResolution = {
+        kind: "open_response",
+        intent: "smalltalk",
+        reply: generatedReply,
+      };
+
+      await appendConversationLog({
+        sessionId: replyInput.sessionId,
+        conversationId: replyInput.conversationId,
+        userId: replyInput.userId,
+        query: replyInput.query,
+        content: replyInput.query,
+        role: "user",
+        routeType: intent.intent,
+        routeConfidence: intent.intentConfidence,
+      });
+      await appendConversationLog({
+        sessionId: replyInput.sessionId,
+        conversationId: replyInput.conversationId,
+        userId: replyInput.userId,
+        query: replyInput.query,
+        content: generatedReply,
+        role: "assistant",
+        routeType: resolution.intent,
+        routeConfidence: intent.intentConfidence,
+      });
+
+      return {
+        reply: generatedReply,
+        conversationContext,
+        intent,
+        resolution,
+        usedResponseGenerator: true,
+      };
+    }
+
     let intent: IntentAnalysis | null = null;
 
     if (input.analyzer) {
@@ -170,6 +330,7 @@ export function createAssistantService(input: {
           query: replyInput.query,
           conversationContext,
           entryMode: replyInput.entryMode,
+          imageUrls,
         });
       } catch {
         // analyzer 失效时不继续猜测路由，直接返回保守澄清，
@@ -241,7 +402,8 @@ export function createAssistantService(input: {
     });
     // 知识查询的答案要尽量保持 provider 原样输出，
     // 不再走一遍本地回复生成器，避免把制度内容或外部知识库答案二次改写。
-    const shouldSkipGeneration = resolution.kind === "knowledge";
+    const shouldSkipGeneration =
+      resolution.kind === "knowledge" || resolution.kind === "clarification";
 
     const generatedReply =
       input.responseGenerator && !shouldSkipGeneration
@@ -250,6 +412,7 @@ export function createAssistantService(input: {
             entryMode: replyInput.entryMode,
             conversationContext,
             resolution,
+            imageUrls,
           })
         : null;
 

@@ -25,6 +25,8 @@ export type AnalyzeIntentInput = {
   query: string;
   conversationContext?: ConversationContextTurn[];
   entryMode?: EntryMode;
+  imageUrl?: string;
+  imageUrls?: string[];
 };
 
 export type IntentAnalyzer = {
@@ -73,7 +75,14 @@ function normalizeAnalyzeInput(
     };
   }
 
-  return input;
+  // extract only relevant fields, stripping methods/getters if any, to ensure plain objects
+  return {
+    query: input.query,
+    conversationContext: input.conversationContext,
+    entryMode: input.entryMode,
+    imageUrl: input.imageUrl,
+    imageUrls: input.imageUrls,
+  };
 }
 
 function buildAnalysisResult(

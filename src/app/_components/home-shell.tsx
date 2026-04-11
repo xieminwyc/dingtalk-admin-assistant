@@ -1,6 +1,6 @@
 "use client";
 
-import type { ChangeEvent, KeyboardEvent } from "react";
+import type { ChangeEvent, ClipboardEvent, KeyboardEvent } from "react";
 import { useEffect, useRef, useState } from "react";
 
 import type { EntryMode } from "@/modules/assistant/entry-mode.types";
@@ -14,6 +14,7 @@ import {
   quickLinks,
   recommendedTeammates,
 } from "../home-config";
+import { prepareComposerImage } from "./composer-image";
 import { createStreamReplyAccumulator } from "./home-shell.stream";
 import { ChatCanvas } from "./chat-canvas";
 import { Composer } from "./composer";
@@ -63,6 +64,14 @@ type WebhookStreamEvent =
   | WebhookStreamChunkEvent
   | WebhookStreamDoneEvent
   | WebhookStreamErrorEvent;
+
+type ComposerImage = {
+  name: string;
+  previewUrl: string;
+  uploadUrl: string;
+};
+
+const MAX_COMPOSER_IMAGES = 4;
 
 function createSessionId() {
   return `home-${Math.random().toString(36).slice(2, 10)}`;
@@ -197,11 +206,7 @@ export function HomeShell({
   const [isHistoryOpen, setIsHistoryOpen] = useState(false);
   const [isSending, setIsSending] = useState(false);
   const [error, setError] = useState<string | null>(null);
-  const [debugSender, setDebugSender] = useState<
-    | { status: "pending" }
-    | { status: "ok"; identity: ResolvedDingTalkSenderIdentity }
-    | { status: "error"; message: string }
-  >({ status: "pending" });
+  const [composerImages, setComposerImages] = useState<ComposerImage[]>([]);
   const textareaRef = useRef<HTMLTextAreaElement | null>(null);
   const senderIdentityRef = useRef<ResolvedDingTalkSenderIdentity>({
     source: "unavailable",
@@ -261,7 +266,6 @@ export function HomeShell({
       })
         .then((identity) => {
           senderIdentityRef.current = identity;
-          setDebugSender({ status: "ok", identity });
           console.info("[home] resolved dingtalk sender", {
             senderStaffId: identity.senderStaffId,
             source: identity.source,
@@ -271,7 +275,7 @@ export function HomeShell({
         })
         .catch((err: unknown) => {
           const message = err instanceof Error ? err.message : String(err);
-          setDebugSender({ status: "error", message });
+          console.warn("[home] sender identity error", message);
           return { source: "unavailable" } as ResolvedDingTalkSenderIdentity;
         });
     }
@@ -357,7 +361,7 @@ export function HomeShell({
   async function sendMessage(rawMessage: string, entryMode?: EntryMode | null) {
     const message = rawMessage.trim();
 
-    if (!message || isSending) {
+    if ((!message && composerImages.length === 0) || isSending) {
       return;
     }
 
@@ -367,6 +371,10 @@ export function HomeShell({
       role: "user",
       content: message,
       mode: resolvedEntryMode ?? null,
+      images: composerImages.map((image) => ({
+        name: image.name,
+        preview: image.previewUrl,
+      })),
     };
     const thinkingId = `assistant-thinking-${Date.now()}`;
 
@@ -412,6 +420,10 @@ export function HomeShell({
           senderStaffId: senderIdentity?.senderStaffId,
           senderSource: senderIdentity?.source,
           senderDiagnostics: senderIdentity?.diagnostics,
+          imageUrls:
+            composerImages.length > 0
+              ? composerImages.map((image) => image.uploadUrl)
+              : undefined,
           text: {
             content: message,
           },
@@ -487,6 +499,8 @@ export function HomeShell({
           meta: payload.meta,
         });
       }
+
+      setComposerImages([]);
     } catch (caughtError) {
       const errorMessage =
         caughtError instanceof Error ? caughtError.message : "发送失败";
@@ -507,6 +521,53 @@ export function HomeShell({
   function handleComposerChange(event: ChangeEvent<HTMLTextAreaElement>) {
     setDraft(event.target.value);
     resizeComposer();
+  }
+
+  function handleComposerPaste(event: ClipboardEvent<HTMLTextAreaElement>) {
+    const files = Array.from(event.clipboardData?.items ?? [])
+      .filter((item) => item.kind === "file" && item.type.startsWith("image/"))
+      .map((item) => item.getAsFile())
+      .filter((file): file is File => file instanceof File);
+
+    if (files.length === 0) {
+      return;
+    }
+
+    event.preventDefault();
+    setError(null);
+
+    const remainingSlots = MAX_COMPOSER_IMAGES - composerImages.length;
+
+    if (remainingSlots <= 0) {
+      setError(`最多支持 ${MAX_COMPOSER_IMAGES} 张图片。`);
+      return;
+    }
+
+    const acceptedFiles = files.slice(0, remainingSlots);
+    const hasOverflow = acceptedFiles.length < files.length;
+
+    void Promise.all(acceptedFiles.map((file) => prepareComposerImage(file)))
+      .then((preparedImages) => {
+        setComposerImages((current) => [
+          ...current,
+          ...preparedImages.map((preparedImage) => ({
+            name: preparedImage.name,
+            previewUrl: preparedImage.previewUrl,
+            uploadUrl: preparedImage.uploadUrl,
+          })),
+        ]);
+
+        if (hasOverflow) {
+          setError(`最多支持 ${MAX_COMPOSER_IMAGES} 张图片。`);
+        }
+      })
+      .catch((caughtError) => {
+        setError(
+          caughtError instanceof Error
+            ? caughtError.message
+            : "图片处理失败，请重试。",
+        );
+      });
   }
 
   function handleComposerKeyDown(event: KeyboardEvent<HTMLTextAreaElement>) {
@@ -632,74 +693,6 @@ export function HomeShell({
         </div>
       </header>
 
-      <div
-        style={{
-          position: "fixed",
-          bottom: 80,
-          left: 0,
-          right: 0,
-          zIndex: 9999,
-          textAlign: "center",
-          pointerEvents: "none",
-        }}
-      >
-        {debugSender.status === "pending" ? (
-          <span
-            style={{
-              display: "inline-block",
-              background: "rgba(0,0,0,0.65)",
-              color: "#ccc",
-              fontSize: 11,
-              padding: "3px 10px",
-              borderRadius: 4,
-            }}
-          >
-            身份解析中…
-          </span>
-        ) : debugSender.status === "error" ? (
-          <span
-            style={{
-              display: "inline-block",
-              background: "rgba(180,0,0,0.85)",
-              color: "#fff",
-              fontSize: 11,
-              padding: "3px 10px",
-              borderRadius: 4,
-            }}
-          >
-            uid 解析失败: {debugSender.message}
-          </span>
-        ) : (
-          <span
-            style={{
-              display: "inline-block",
-              background: "rgba(0,0,0,0.75)",
-              color: "#fff",
-              fontSize: 11,
-              padding: "3px 10px",
-              borderRadius: 4,
-              letterSpacing: "0.02em",
-              maxWidth: "90vw",
-              wordBreak: "break-all",
-            }}
-          >
-            uid: <strong>{debugSender.identity.senderStaffId ?? "(空)"}</strong>
-            {" · "}src: {debugSender.identity.source}
-            {debugSender.identity.diagnostics ? (
-              <>
-                {" · "}cid:
-                {debugSender.identity.diagnostics.clientIdProvided
-                  ? "Y"
-                  : "N"}{" "}
-                ua:{debugSender.identity.diagnostics.isDingTalkUa ? "Y" : "N"}{" "}
-                oauth2:
-                {debugSender.identity.diagnostics.oauth2CodeFromUrl ? "Y" : "N"}
-              </>
-            ) : null}
-          </span>
-        )}
-      </div>
-
       <HistoryDrawer
         isOpen={isHistoryOpen}
         summaries={conversationSummaries}
@@ -734,10 +727,17 @@ export function HomeShell({
         currentPlaceholder={currentPlaceholder}
         draft={draft}
         error={error}
+        images={composerImages}
         isSending={isSending}
         textareaRef={textareaRef}
         onChange={handleComposerChange}
+        onPaste={handleComposerPaste}
         onKeyDown={handleComposerKeyDown}
+        onRemoveImage={(index) =>
+          setComposerImages((current) =>
+            current.filter((_, imageIndex) => imageIndex !== index),
+          )
+        }
         onSend={() => void sendMessage(draft)}
       />
 

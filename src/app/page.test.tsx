@@ -1,4 +1,4 @@
-import { render, screen, waitFor, within } from "@testing-library/react";
+import { fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { afterEach, describe, expect, it, vi } from "vitest";
 
@@ -36,6 +36,7 @@ describe("Home", () => {
     window.history.replaceState({}, "", "/");
     delete (window as Window & { dd?: unknown }).dd;
     delete (window as Window & { DingTalkPC?: unknown }).DingTalkPC;
+    delete process.env.DINGTALK_CLIENT_ID;
     delete process.env.DINGTALK_CORP_ID;
   });
 
@@ -313,6 +314,42 @@ describe("Home", () => {
     expect(screen.getByText("帮我写作")).toBeInTheDocument();
   });
 
+  it("keeps new topic actions out of the composer once chat is active", async () => {
+    const user = userEvent.setup();
+
+    vi.spyOn(globalThis, "fetch").mockResolvedValue(
+      new Response(
+        JSON.stringify({
+          reply: "请联系财务同学处理报销退回问题。",
+        }),
+        {
+          status: 200,
+          headers: {
+            "Content-Type": "application/json",
+          },
+        },
+      ),
+    );
+
+    render(<Home />);
+
+    await user.click(
+      screen.getByRole("button", { name: "报销单被退回应该联系谁？" }),
+    );
+    await user.keyboard("{Enter}");
+
+    await waitFor(() => {
+      expect(screen.getByText("ACTIVE CONVERSATION")).toBeInTheDocument();
+    });
+
+    expect(
+      screen.getByRole("button", { name: "返回首页" }),
+    ).toBeInTheDocument();
+    expect(
+      screen.queryByRole("button", { name: "新对话" }),
+    ).not.toBeInTheDocument();
+  });
+
   it("renders layered knowledge results with citations and a mode badge", async () => {
     const user = userEvent.setup();
 
@@ -401,6 +438,85 @@ describe("Home", () => {
     expect(screen.getByText("费用报销制度")).toBeInTheDocument();
   });
 
+  it("accepts multiple pasted images and sends imageUrls to the homepage stream endpoint", async () => {
+    const user = userEvent.setup();
+    const fetchSpy = vi.spyOn(globalThis, "fetch").mockResolvedValue(
+      buildSseResponse([
+        {
+          type: "chunk",
+          content: "这是一张报销凭证截图。",
+        },
+        {
+          type: "done",
+          reply: "这是一张报销凭证截图。",
+          kind: "open_response",
+        },
+      ]),
+    );
+
+    render(<Home />);
+
+    const input = screen.getByLabelText("输入消息");
+    const firstFile = new File(["image-bytes-1"], "receipt-1.png", {
+      type: "image/png",
+    });
+    const secondFile = new File(["image-bytes-2"], "receipt-2.png", {
+      type: "image/png",
+    });
+
+    await user.click(input);
+    fireEvent.paste(input, {
+      clipboardData: {
+        items: [
+          {
+            kind: "file",
+            type: firstFile.type,
+            getAsFile: () => firstFile,
+          },
+          {
+            kind: "file",
+            type: secondFile.type,
+            getAsFile: () => secondFile,
+          },
+        ],
+      },
+    });
+
+    await waitFor(() => {
+      expect(screen.getByRole("img", { name: "receipt-1.png" })).toBeInTheDocument();
+      expect(screen.getByRole("img", { name: "receipt-2.png" })).toBeInTheDocument();
+    });
+    expect(screen.getAllByRole("button", { name: "移除" })).toHaveLength(2);
+
+    await user.type(input, "帮我看看这是什么{enter}");
+
+    await waitFor(() => {
+      expect(fetchSpy).toHaveBeenCalledWith(
+        "/api/dingtalk/webhook/stream",
+        expect.objectContaining({
+          method: "POST",
+        }),
+      );
+    });
+
+    const request = fetchSpy.mock.calls.find(
+      ([url]) => url === "/api/dingtalk/webhook/stream",
+    );
+    const body = JSON.parse(String(request?.[1]?.body)) as {
+      imageUrls?: string[];
+      text?: { content?: string };
+    };
+
+    expect(body.text?.content).toBe("帮我看看这是什么");
+    expect(body.imageUrls).toHaveLength(2);
+    expect(body.imageUrls?.[0]).toMatch(/^data:image\/png;base64,/);
+    expect(body.imageUrls?.[1]).toMatch(/^data:image\/png;base64,/);
+
+    await waitFor(() => {
+      expect(screen.queryAllByRole("button", { name: "移除" })).toHaveLength(0);
+    });
+  });
+
   it("includes senderStaffId in the homepage stream request when the browser already knows the current user", async () => {
     const user = userEvent.setup();
 
@@ -446,27 +562,8 @@ describe("Home", () => {
   it("exchanges authCode and includes senderStaffId in the homepage stream request", async () => {
     const user = userEvent.setup();
 
-    process.env.DINGTALK_CORP_ID = "dingcorp-test";
-
-    const ready = vi.fn((callback: () => void) => callback());
-    const requestAuthCode = vi.fn(
-      ({
-        onSuccess,
-      }: {
-        onSuccess?: (payload: { code?: string }) => void;
-      }) => onSuccess?.({ code: "auth-code-1" }),
-    );
-
-    Object.assign(window, {
-      dd: {
-        ready,
-        runtime: {
-          permission: {
-            requestAuthCode,
-          },
-        },
-      },
-    });
+    process.env.DINGTALK_CLIENT_ID = "ding-app-key";
+    window.history.replaceState({}, "", "/?authCode=auth-code-1");
 
     vi.spyOn(globalThis, "fetch").mockImplementation(async (input) => {
       if (input === "/api/dingtalk/browser-identity") {
@@ -503,6 +600,7 @@ describe("Home", () => {
           method: "POST",
           body: JSON.stringify({
             authCode: "auth-code-1",
+            source: "oauth2",
           }),
         }),
       );
@@ -522,7 +620,7 @@ describe("Home", () => {
       expect.objectContaining({
         method: "POST",
         body: expect.stringContaining(
-          '"senderSource":"dd.runtime.permission.requestAuthCode"',
+          '"senderSource":"oauth2-redirect"',
         ),
       }),
     );

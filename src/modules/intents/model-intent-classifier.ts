@@ -8,6 +8,8 @@ import type {
 export type ModelIntentClassifierInput = {
   query: string;
   conversationContext?: ConversationContextTurn[];
+  imageUrl?: string;
+  imageUrls?: string[];
 };
 
 export type ModelIntentClassifier = {
@@ -172,6 +174,28 @@ function formatSiliconFlowLog(message: string) {
   return `[siliconflow] ${message}`;
 }
 
+function normalizeImageUrls(input: {
+  imageUrl?: string;
+  imageUrls?: string[];
+}) {
+  if (Array.isArray(input.imageUrls)) {
+    const normalized = input.imageUrls
+      .filter((imageUrl): imageUrl is string => typeof imageUrl === "string")
+      .map((imageUrl) => imageUrl.trim())
+      .filter(Boolean);
+
+    if (normalized.length > 0) {
+      return normalized;
+    }
+  }
+
+  if (typeof input.imageUrl === "string" && input.imageUrl.trim().length > 0) {
+    return [input.imageUrl.trim()];
+  }
+
+  return [];
+}
+
 function buildDecisionSystemPrompt() {
   return [
     "你是企业员工助手的决策引擎，只能输出 JSON。",
@@ -182,8 +206,11 @@ function buildDecisionSystemPrompt() {
     "低置信度时不要硬判，应该返回 clarify。",
     "needKnowledge、needTaskResolution 和 toolPlan 用于告诉系统是否要调用工具。",
     "只有公司内部知识和公司事务才允许调用工具。",
-    "如果是闲聊、天气、旅游、美食、生活常识、百科问答、攻略建议，应该判断为 open_response，并设置 toolPlan 为 none。",
+    "如果是闲聊、天气、旅游、美食、生活常识、百科问答、攻略建议、图片识别、文字提取、针对图片内容的询问，应该判断为 open_response，并设置 toolPlan 为 none。",
+    "如果用户上传了图片，请务必结合图片内容进行判断。如果图片中包含发票、医疗单据、合同、审批单、规则制度等公司相关内容，请尝试根据内容映射到 internal_knowledge 或 task。",
     "如果 mode 是 open_response，必须返回 reply 字段，内容是本轮可以直接发给用户的最终中文回复。",
+    "open_response 的 reply 必须是有帮助的、正面的回答，禁止以“我是企业助手”或“无法查询”等理由拒绝作答。",
+    "即使你没有实时数据（如天气、股价），也应该基于常识给出有参考价值的回答，可以附带建议用户查看权威渠道获取最新信息。",
     "如果 mode 不是 open_response，不要返回 reply 字段。",
     "禁止查阅公司内部知识库来回答通用知识或闲聊问题。",
     "询问公司规则、制度、说明、标准、口径、区别、适用范围，优先判断为 internal_knowledge。",
@@ -212,6 +239,7 @@ function buildDecisionSystemPrompt() {
     '用户：“你是谁” -> {"mode":"open_response","intentConfidence":0.95,"needKnowledge":false,"needTaskResolution":false,"toolPlan":"none","topicShift":false,"reply":"你好，我是你的员工助手，主要可以帮你查公司制度、找办理入口，也可以先帮你判断问题该查知识还是走流程。"}',
     '用户：“你能做什么” -> {"mode":"open_response","intentConfidence":0.97,"needKnowledge":false,"needTaskResolution":false,"toolPlan":"none","topicShift":false,"reply":"我可以帮你查公司制度说明、找常用办理入口，也可以先帮你判断问题该查知识还是走流程。"}',
     '用户：“北京七日游攻略” -> {"mode":"open_response","intentConfidence":0.94,"needKnowledge":false,"needTaskResolution":false,"toolPlan":"none","topicShift":false,"reply":"如果你想轻松一点，我建议按故宫、中轴线、长城、颐和园、胡同这样安排。"}',
+    '用户：“今天天气怎么样” -> {"mode":"open_response","intentConfidence":0.95,"needKnowledge":false,"needTaskResolution":false,"toolPlan":"none","topicShift":false,"reply":"我作为企业助手没有接入实时天气数据，你可以看下手机上的天气预报，记得注意防寒保暖。"}',
     '用户：“这个怎么办” -> {"mode":"clarify","intentConfidence":0.3,"needKnowledge":false,"needTaskResolution":false,"toolPlan":"none","topicShift":false,"clarifyQuestion":"你是想查制度说明，还是想办理流程？"}',
   ].join("\n");
 }
@@ -225,13 +253,38 @@ export function createModelIntentClassifier(
   return {
     async classify(rawInput) {
       const normalizedInput = normalizeClassifierInput(rawInput);
+      const imageUrls = normalizeImageUrls(normalizedInput);
 
       try {
         console.info(
           formatSiliconFlowLog(
-            `request model="${input.model}" query="${normalizedInput.query}"`,
+            `request model="${input.model}" query="${normalizedInput.query}" hasImage=${imageUrls.length > 0}`,
           ),
         );
+
+        let userContent: any = [
+          formatConversationContext(
+            normalizedInput.conversationContext ?? [],
+          ),
+          `当前用户消息：${normalizedInput.query}`,
+          imageUrls.length > 0
+            ? `注意：用户还上传了 ${imageUrls.length} 张图片，请结合图片内容进行判断。`
+            : undefined,
+          "请直接返回 JSON 决策结果，不要输出额外解释。",
+        ].filter(Boolean).join("\n\n");
+
+        if (imageUrls.length > 0) {
+          userContent = [
+            { type: "text", text: userContent },
+            ...imageUrls.map((imageUrl) => ({
+              type: "image_url",
+              image_url: { url: imageUrl },
+            })),
+          ];
+        }
+
+        const controller = new AbortController();
+        const timeoutId = setTimeout(() => controller.abort(), 10000); // 10s 决策层超时
 
         const response = await requestFetch(`${baseUrl}/chat/completions`, {
           method: "POST",
@@ -242,9 +295,13 @@ export function createModelIntentClassifier(
           body: JSON.stringify({
             model: input.model,
             temperature: 0,
-            response_format: {
-              type: "json_object",
-            },
+            ...(imageUrls.length > 0
+              ? {}
+              : {
+                  response_format: {
+                    type: "json_object",
+                  },
+                }),
             messages: [
               {
                 role: "system",
@@ -252,23 +309,20 @@ export function createModelIntentClassifier(
               },
               {
                 role: "user",
-                content: [
-                  formatConversationContext(
-                    normalizedInput.conversationContext ?? [],
-                  ),
-                  `当前用户消息：${normalizedInput.query}`,
-                  "请直接返回 JSON 决策结果，不要输出额外解释。",
-                ].join("\n\n"),
+                content: userContent,
               },
             ],
           }),
+          signal: controller.signal,
         });
 
         if (!response.ok) {
+          const errorBody = await response.text().catch(() => "(failed to read body)");
+          clearTimeout(timeoutId);
           const reason = `${response.status} ${response.statusText}`.trim();
-          console.warn(
+          console.error(
             formatSiliconFlowLog(
-              `response mode=clarify query="${normalizedInput.query}" reason="${reason}"`,
+              `API ERROR: status=${reason} body=${errorBody} query="${normalizedInput.query}"`,
             ),
           );
 
@@ -281,15 +335,37 @@ export function createModelIntentClassifier(
               content?: string;
             };
           }>;
+          error?: {
+            message?: string;
+          };
         };
 
-        const decision = extractDecisionFromContent(
-          payload.choices?.[0]?.message?.content ?? "",
-        );
+        clearTimeout(timeoutId);
+
+        if (payload.error) {
+           console.error(
+            formatSiliconFlowLog(
+              `MODEL ERROR: ${JSON.stringify(payload.error)} query="${normalizedInput.query}"`,
+            ),
+          );
+          return buildModelErrorDecision();
+        }
+
+        const content = payload.choices?.[0]?.message?.content ?? "";
+        
+        if (!content) {
+          console.warn(
+            formatSiliconFlowLog(
+              `EMPTY CONTENT: model returned no content for query="${normalizedInput.query}"`,
+            ),
+          );
+        }
+
+        const decision = extractDecisionFromContent(content);
 
         console.info(
           formatSiliconFlowLog(
-            `response mode=${decision.mode} query="${normalizedInput.query}"`,
+            `response mode=${decision.mode} query="${normalizedInput.query}" content="${content.replace(/\n/g, "\\n")}"`,
           ),
         );
 

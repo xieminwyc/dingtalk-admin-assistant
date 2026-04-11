@@ -2,6 +2,7 @@ import { createAssistantRuntime } from "@/modules/assistant/create-assistant-run
 import type { AssistantResolution } from "@/modules/assistant/assistant.types";
 import type { EntryMode } from "@/modules/assistant/entry-mode.types";
 import type { AssistantDebugReply } from "@/modules/assistant/assistant.service";
+import { resolveUserQuery } from "@/modules/assistant/user-query";
 import type { RagSearchItem } from "@/modules/knowledge/knowledge-api-client";
 
 export const runtime = "nodejs";
@@ -33,6 +34,8 @@ function maskIdentifier(value?: string) {
 type DingTalkWebhookPayload = {
   sessionId?: string;
   entryMode?: EntryMode;
+  imageUrl?: string;
+  imageUrls?: string[];
   text?: {
     content?: string;
   };
@@ -41,6 +44,28 @@ type DingTalkWebhookPayload = {
   senderSource?: string;
   senderDiagnostics?: Record<string, boolean | string | undefined>;
 };
+
+function resolveImageUrls(input: {
+  imageUrl?: string;
+  imageUrls?: string[];
+}) {
+  if (Array.isArray(input.imageUrls)) {
+    const normalized = input.imageUrls
+      .filter((imageUrl): imageUrl is string => typeof imageUrl === "string")
+      .map((imageUrl) => imageUrl.trim())
+      .filter(Boolean);
+
+    if (normalized.length > 0) {
+      return normalized;
+    }
+  }
+
+  if (typeof input.imageUrl === "string" && input.imageUrl.trim().length > 0) {
+    return [input.imageUrl.trim()];
+  }
+
+  return [];
+}
 
 type WebhookStreamChunkEvent = {
   type: "chunk";
@@ -412,6 +437,8 @@ async function createExternalKnowledgeStreamResponse(input: {
                 title: citations[0]?.documentTitle ?? "知识库回答",
               },
             });
+            emitDoneMarker();
+            closeSafely();
             return;
           }
 
@@ -474,7 +501,12 @@ async function createExternalKnowledgeStreamResponse(input: {
 
 export async function POST(request: Request) {
   const body = (await request.json()) as DingTalkWebhookPayload;
-  const message = body.text?.content?.trim();
+  const imageUrls = resolveImageUrls(body);
+  const message = resolveUserQuery({
+    text: body.text?.content,
+    imageUrl: body.imageUrl,
+    imageUrls,
+  });
 
   if (!message) {
     return Response.json(
@@ -492,6 +524,7 @@ export async function POST(request: Request) {
     sessionId: body.sessionId ?? "webhook-debug-session",
     entryMode: body.entryMode,
     userId: body.senderStaffId || body.senderId,
+    imageUrls: imageUrls.length > 0 ? imageUrls : undefined,
   };
   console.info("[webhook/stream] incoming sender", {
     senderId: maskIdentifier(body.senderId),
@@ -503,10 +536,16 @@ export async function POST(request: Request) {
   });
   const runtime = getAssistantRuntime();
 
+  if (imageUrls.length > 0) {
+    const debugResult = await runtime.assistant.replyWithDebug(assistantInput);
+    return createSyntheticStreamResponse(debugResult);
+  }
+
   try {
     const intent = await runtime.analyzer.analyze({
       query: assistantInput.query,
       entryMode: assistantInput.entryMode,
+      imageUrls: assistantInput.imageUrls,
     });
 
     if (

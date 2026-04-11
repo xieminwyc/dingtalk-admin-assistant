@@ -1,4 +1,5 @@
 import type { AssistantDebugReply } from "@/modules/assistant/assistant.service";
+import { resolveUserQuery } from "@/modules/assistant/user-query";
 import type {
   KnowledgeCitation,
   KnowledgeImage,
@@ -8,6 +9,8 @@ type StreamTextPayload = {
   text?: {
     content?: string;
   };
+  imageUrl?: string;
+  imageUrls?: string[];
 };
 
 type StreamMessagePayload = StreamTextPayload & {
@@ -18,9 +21,21 @@ type StreamMessagePayload = StreamTextPayload & {
 };
 
 type AssistantPort = {
-  reply(input: string | { query: string; sessionId?: string; userId?: string }): Promise<string>;
+  reply(input: {
+    query: string;
+    sessionId?: string;
+    userId?: string;
+    imageUrl?: string;
+    imageUrls?: string[];
+  }): Promise<string>;
   replyWithDebug?: (
-    input: string | { query: string; sessionId?: string; userId?: string }
+    input: {
+      query: string;
+      sessionId?: string;
+      userId?: string;
+      imageUrl?: string;
+      imageUrls?: string[];
+    }
   ) => Promise<AssistantDebugReply>;
 };
 
@@ -47,7 +62,11 @@ type StreamHandlerResult =
     };
 
 export function extractIncomingText(payload: StreamTextPayload) {
-  const message = payload.text?.content?.trim();
+  const message = resolveUserQuery({
+    text: payload.text?.content,
+    imageUrl: payload.imageUrl,
+    imageUrls: payload.imageUrls,
+  });
 
   return message ? message : null;
 }
@@ -83,6 +102,8 @@ export function createDingTalkStreamHandler(input: {
       query: message,
       sessionId: payload.conversationId || payload.sessionWebhook,
       userId: payload.senderStaffId || payload.senderId,
+      imageUrl: payload.imageUrl,
+      imageUrls: payload.imageUrls,
     };
     let reply: string;
     let citations: KnowledgeCitation[] | undefined;

@@ -25,6 +25,25 @@ describe("extractIncomingText", () => {
       })
     ).toBeNull();
   });
+
+  it("returns a default recognition prompt for image-only payloads", () => {
+    expect(
+      extractIncomingText({
+        imageUrl: "data:image/png;base64,abc123",
+      })
+    ).toBe("请识别这张图片内容");
+  });
+
+  it("replaces DingTalk image placeholder text with a recognition prompt", () => {
+    expect(
+      extractIncomingText({
+        text: {
+          content: "[图片消息]",
+        },
+        imageUrl: "data:image/png;base64,abc123",
+      })
+    ).toBe("请识别这张图片内容");
+  });
 });
 
 describe("createDingTalkStreamHandler", () => {
@@ -62,7 +81,7 @@ describe("createDingTalkStreamHandler", () => {
 
   it("passes knowledge images to the replier when debug resolution includes cited pictures", async () => {
     const replyMarkdown = vi.fn(async () => undefined);
-    const assistant = {
+    const assistant: any = {
       reply: vi.fn(async () => "不会被调用"),
       replyWithDebug: vi.fn(async () => ({
         reply: "公司的报销流程如下，详见{{图1}}。",
@@ -139,6 +158,41 @@ describe("createDingTalkStreamHandler", () => {
           },
         ],
       },
+    );
+    expect(result.success).toBe(true);
+    expect(result.retryable).toBe(false);
+  });
+
+  it("passes a recognition prompt and imageUrl for image-only messages", async () => {
+    const replyMarkdown = vi.fn(async () => undefined);
+    const assistant = {
+      reply: vi.fn(async () => "这是一张流程截图。"),
+    };
+
+    const handler = createDingTalkStreamHandler({
+      assistant,
+      replier: {
+        replyMarkdown,
+      },
+    });
+
+    const result = await handler({
+      sessionWebhook: "https://session.example.com",
+      text: {
+        content: "[图片消息]",
+      },
+      imageUrl: "data:image/png;base64,abc123",
+    });
+
+    expect(assistant.reply).toHaveBeenCalledWith({
+      query: "请识别这张图片内容",
+      sessionId: "https://session.example.com",
+      userId: undefined,
+      imageUrl: "data:image/png;base64,abc123",
+    });
+    expect(replyMarkdown).toHaveBeenCalledWith(
+      "https://session.example.com",
+      "这是一张流程截图。",
     );
     expect(result.success).toBe(true);
     expect(result.retryable).toBe(false);

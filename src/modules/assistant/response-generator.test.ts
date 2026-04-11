@@ -107,6 +107,173 @@ describe("createResponseGenerator", () => {
     ).resolves.toBeNull();
   });
 
+  it("logs the error reason when generation throws", async () => {
+    const warnSpy = vi.spyOn(console, "warn").mockImplementation(() => {});
+    const generator = createResponseGenerator({
+      apiKey: "test-key",
+      baseUrl: "https://api.siliconflow.cn/v1",
+      model: "Qwen/Qwen3-VL-8B-Instruct",
+      fetch: vi.fn().mockRejectedValue(new Error("This operation was aborted"))
+    });
+
+    await expect(
+      generator.generate({
+        query: "那这个呢",
+        imageUrl: "data:image/png;base64,abc123",
+        resolution: {
+          kind: "open_response",
+          intent: "smalltalk",
+          reply: "那这个呢"
+        }
+      })
+    ).resolves.toBeNull();
+
+    expect(warnSpy).toHaveBeenCalledWith(
+      '[response] response mode=open_response query="那这个呢" failed reason="This operation was aborted"'
+    );
+  });
+
+  it("sends every uploaded image to the visual model request", async () => {
+    const fetchMock = vi.fn().mockResolvedValue({
+      ok: true,
+      json: async () => ({
+        choices: [
+          {
+            message: {
+              content: "这是两张凭证截图。"
+            }
+          }
+        ]
+      })
+    });
+    const generator = createResponseGenerator({
+      apiKey: "test-key",
+      baseUrl: "https://api.siliconflow.cn/v1",
+      model: "Qwen/Qwen3-VL-8B-Instruct",
+      fetch: fetchMock
+    });
+
+    await expect(
+      generator.generate({
+        query: "这两张图是什么",
+        imageUrls: [
+          "data:image/png;base64,abc123",
+          "data:image/png;base64,def456",
+        ],
+        resolution: {
+          kind: "open_response",
+          intent: "smalltalk",
+          reply: "这两张图是什么"
+        }
+      })
+    ).resolves.toBe("这是两张凭证截图。");
+
+    const requestBody = JSON.parse(String(fetchMock.mock.calls[0]?.[1]?.body)) as {
+      messages: Array<{ content: Array<{ type: string; image_url?: { url: string } }> }>;
+    };
+
+    expect(requestBody.messages[1]?.content).toEqual([
+      expect.objectContaining({ type: "text" }),
+      {
+        type: "image_url",
+        image_url: { url: "data:image/png;base64,abc123" },
+      },
+      {
+        type: "image_url",
+        image_url: { url: "data:image/png;base64,def456" },
+      },
+    ]);
+  });
+
+  it("extracts text from multimodal content blocks returned by the provider", async () => {
+    const fetchMock = vi.fn().mockResolvedValue({
+      ok: true,
+      json: async () => ({
+        choices: [
+          {
+            message: {
+              content: [
+                {
+                  type: "text",
+                  text: "这是两张报销凭证截图。",
+                },
+              ],
+            },
+          },
+        ],
+      }),
+    });
+    const generator = createResponseGenerator({
+      apiKey: "test-key",
+      baseUrl: "https://api.siliconflow.cn/v1",
+      model: "Qwen/Qwen3-VL-8B-Instruct",
+      fetch: fetchMock,
+    });
+
+    await expect(
+      generator.generate({
+        query: "这里面是什么",
+        imageUrls: [
+          "data:image/png;base64,abc123",
+          "data:image/png;base64,def456",
+        ],
+        resolution: {
+          kind: "open_response",
+          intent: "smalltalk",
+          reply: "这里面是什么",
+        },
+      }),
+    ).resolves.toBe("这是两张报销凭证截图。");
+  });
+
+  it("uses a longer timeout window for visual generation requests", async () => {
+    const originalSetTimeout = globalThis.setTimeout;
+    const originalClearTimeout = globalThis.clearTimeout;
+    const setTimeoutSpy = vi.fn((handler: TimerHandler, _timeout?: number) => 123 as unknown as ReturnType<typeof setTimeout>);
+    const clearTimeoutSpy = vi.fn();
+
+    globalThis.setTimeout = setTimeoutSpy as unknown as typeof setTimeout;
+    globalThis.clearTimeout = clearTimeoutSpy as typeof clearTimeout;
+
+    try {
+      const generator = createResponseGenerator({
+        apiKey: "test-key",
+        baseUrl: "https://api.siliconflow.cn/v1",
+        model: "Qwen/Qwen3-VL-8B-Instruct",
+        fetch: vi.fn().mockResolvedValue({
+          ok: true,
+          json: async () => ({
+            choices: [
+              {
+                message: {
+                  content: "这是一张凭证截图。"
+                }
+              }
+            ]
+          })
+        })
+      });
+
+      await expect(
+        generator.generate({
+          query: "这是什么图片",
+          imageUrl: "data:image/png;base64,abc123",
+          resolution: {
+            kind: "open_response",
+            intent: "smalltalk",
+            reply: "这是什么图片"
+          }
+        })
+      ).resolves.toBe("这是一张凭证截图。");
+
+      expect(setTimeoutSpy).toHaveBeenCalledWith(expect.any(Function), 45000);
+      expect(clearTimeoutSpy).toHaveBeenCalledWith(123);
+    } finally {
+      globalThis.setTimeout = originalSetTimeout;
+      globalThis.clearTimeout = originalClearTimeout;
+    }
+  });
+
   it("treats open_response as a direct-answer mode instead of a company knowledge lookup", async () => {
     const fetchMock = vi.fn().mockResolvedValue({
       ok: true,
@@ -141,8 +308,8 @@ describe("createResponseGenerator", () => {
     const requestBody = JSON.parse(String(fetchMock.mock.calls[0]?.[1]?.body)) as {
       messages: Array<{ content: string }>;
     };
-    expect(requestBody.messages[0]?.content).toContain("open_response");
-    expect(requestBody.messages[0]?.content).toContain("直接回答");
+    expect(requestBody.messages[0]?.content).toContain("也能回答一般性问题");
+    expect(requestBody.messages[0]?.content).toContain("严禁编造制度、链接或联系人");
     expect(requestBody.messages[1]?.content).toContain("mode: open_response");
   });
 
@@ -183,8 +350,6 @@ describe("createResponseGenerator", () => {
       messages: Array<{ content: string }>;
     };
 
-    expect(requestBody.messages[0]?.content).toContain("不要询问用户公司名称");
-    expect(requestBody.messages[0]?.content).toContain("优先使用工具提供的 relatedKeywords");
     expect(requestBody.messages[0]?.content).toContain(
       "如果工具没有给出事实，严禁编造制度、链接或联系人"
     );

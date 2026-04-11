@@ -1,4 +1,6 @@
-import { useState } from "react";
+"use client";
+
+import { useEffect, useRef, useState } from "react";
 
 import type {
   ChatCitation,
@@ -225,6 +227,26 @@ function renderImage(
 
 export function ChatCanvas({ isSending, messages }: ChatCanvasProps) {
   const [previewImage, setPreviewImage] = useState<ChatImage | null>(null);
+  const chatHistoryRef = useRef<HTMLDivElement>(null);
+
+  useEffect(() => {
+    // 先尝试滚动容器
+    if (chatHistoryRef.current) {
+      const container = chatHistoryRef.current;
+      const isScrollable = container.scrollHeight > container.clientHeight;
+
+      if (isScrollable) {
+        container.scrollTop = container.scrollHeight;
+        return;
+      }
+    }
+
+    // 如果容器不可滚动，滚动整个页面
+    window.scrollTo({
+      top: document.body.scrollHeight,
+      behavior: "smooth",
+    });
+  }, [messages]);
 
   return (
     <>
@@ -236,7 +258,7 @@ export function ChatCanvas({ isSending, messages }: ChatCanvasProps) {
           ) : null}
         </div>
 
-        <div className="portal-chat-history">
+        <div className="portal-chat-history" ref={chatHistoryRef}>
           {messages.length === 0 ? (
             <div className="portal-chat-empty">
               有问题尽管问我。你可以点卡片示例问题，也可以直接在下面输入。
@@ -377,7 +399,30 @@ export function ChatCanvas({ isSending, messages }: ChatCanvasProps) {
                       ) : null}
                     </div>
                   ) : (
-                    <p>{message.content}</p>
+                    <>
+                      <p>{message.content}</p>
+                      {message.images && message.images.length > 0 ? (
+                        <div className="portal-chat-images">
+                          {message.images.map((image, index) => (
+                            <div
+                              key={`user-${image.name}-${index}`}
+                              className="portal-chat-image-card"
+                            >
+                              {image.preview ? (
+                                <img
+                                  alt={image.name}
+                                  className="portal-chat-image"
+                                  src={image.preview}
+                                />
+                              ) : null}
+                              <div className="portal-chat-image-meta">
+                                <p className="portal-chat-image-name">{image.name}</p>
+                              </div>
+                            </div>
+                          ))}
+                        </div>
+                      ) : null}
+                    </>
                   )}
                 </article>
               );
