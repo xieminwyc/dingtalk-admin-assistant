@@ -88,15 +88,27 @@ dingtalk-admin-assistant/
 ```text
 员工在钉钉发消息
   → DingTalk Stream 客户端接收
-  → 意图分析（判断是查制度 / 办事务 / 闲聊 / 信息不足）
-  → 请求路由（按意图分流）
-      ├─ internal_knowledge → 查本地制度文档 / 知识卡片
-      ├─ task              → 返回事务入口说明
-      ├─ open_response     → 模型直接回答（闲聊、通用问题）
-      └─ clarify           → 追问用户补充信息
+  → 消息标准化（抽取文本、识别 richText 图片、补默认图片问题）
+  → 按消息类型分流
+      ├─ 图片消息
+      │   → 直接走视觉回答生成（跳过意图分析）
+      │   → 返回图片识别结果
+      └─ 普通文本消息
+          → 意图分析（判断是查制度 / 办事务 / 闲聊 / 信息不足）
+          → 请求路由（按意图分流）
+              ├─ internal_knowledge → 查本地制度文档 / 知识卡片
+              ├─ task              → 返回事务入口说明
+              ├─ open_response     → 模型直接回答（闲聊、通用问题）
+              └─ clarify           → 追问用户补充信息
   → 组织回复文本
   → 通过 sessionWebhook 发回钉钉
 ```
+
+补充说明：
+
+- 当前架构没有推翻重做，仍然是“Stream 接入 + assistant 编排 + analyzer/router/retriever/generator”这一套。
+- 本次新增的是一个明确的图片 fast-path：带 `imageUrl` 的请求不再先走意图分析，而是直接走视觉回答生成。
+- 这样做的目的是减少多模态场景下不必要的二次模型调用，并降低图片消息误判或超时的概率。
 
 **四类主模式说明：**
 
@@ -106,6 +118,10 @@ dingtalk-admin-assistant/
 | `task`               | 表达办理诉求、申请动作   | "我要请假"   |
 | `open_response`      | 闲聊、打招呼、通用常识   | "你好"       |
 | `clarify`            | 表达不清，需要追问       | "这个怎么弄" |
+
+补充能力：
+
+- 图片识别问题（如“这是什么图片”“这个里面是什么”）当前不进入上表四类意图判断，而是直接走视觉回答链路。
 
 ---
 
@@ -185,6 +201,11 @@ npm run stream:dev
 - 员工福利制度
 - 绩效考核制度
 - 非业务合同管理制度
+
+补充说明：
+
+- 机器人现已支持钉钉图片消息识别，包含 `richText` 结构中的图片消息。
+- 图片识别相关排障与修复记录见 [docs/dingtalk-image-debugging.md](./docs/dingtalk-image-debugging.md)。
 
 ---
 

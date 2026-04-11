@@ -43,10 +43,11 @@ function buildDecisionPayload(query: string) {
   }
 
   return {
-    mode: "knowledge",
+    mode: "internal_knowledge",
     intentConfidence: 0.93,
     needKnowledge: true,
     needTaskResolution: false,
+    toolPlan: "knowledge",
     topicShift: false,
     knowledgeHint: "年假规则"
   };
@@ -60,6 +61,21 @@ function buildGeneratedReply(query: string) {
   return "结论\n年假天数按司龄计算，试用期不单独享有年假，具体以 HR 制度公告为准。\n\n适用范围\n适用于正式员工年假政策查询";
 }
 
+function extractUserText(
+  content?:
+    | string
+    | Array<
+        | { type: "text"; text: string }
+        | { type: "image_url"; image_url: { url: string } }
+      >
+) {
+  if (typeof content === "string") {
+    return content;
+  }
+
+  return content?.find((item) => item.type === "text")?.text ?? "";
+}
+
 function installModelEnabledFetchMock() {
   process.env.SILICONFLOW_API_KEY = "test-key";
   process.env.SILICONFLOW_BASE_URL = "https://api.siliconflow.cn/v1";
@@ -70,13 +86,22 @@ function installModelEnabledFetchMock() {
 
     if (url.endsWith("/chat/completions")) {
       const requestBody = JSON.parse(String(init?.body ?? "{}")) as {
-        messages?: Array<{ content?: string }>;
+        messages?: Array<{
+          content?:
+            | string
+            | Array<
+                | { type: "text"; text: string }
+                | { type: "image_url"; image_url: { url: string } }
+              >;
+        }>;
       };
       const query =
-        requestBody.messages?.[1]?.content?.split("当前用户消息：")[1]?.trim() ?? "";
+        extractUserText(requestBody.messages?.[1]?.content)
+          .split("当前用户消息：")[1]
+          ?.trim() ?? "";
       const systemPrompt = requestBody.messages?.[0]?.content ?? "";
 
-      if (String(systemPrompt).includes("回复生成器")) {
+      if (!String(systemPrompt).includes("决策引擎")) {
         return Response.json({
           choices: [
             {
@@ -263,6 +288,181 @@ describe("createRobotStreamListener", () => {
     expect(socketCallBackResponse).toHaveBeenCalledWith("msg-1", "SUCCESS");
   });
 
+  it("parses richText picture+text messages and forwards both query and image", async () => {
+    const socketCallBackResponse = vi.fn();
+    const assistant = {
+      reply: vi.fn(async () => "这是报销凭证截图。")
+    };
+    const replier = {
+      replyMarkdown: vi.fn(async () => undefined)
+    };
+    const fetchMock = vi
+      .spyOn(globalThis, "fetch")
+      .mockResolvedValueOnce(
+        Response.json({
+          accessToken: "token-1",
+          expireIn: 7200
+        })
+      )
+      .mockResolvedValueOnce(
+        Response.json({
+          downloadUrl: "https://cdn.example.com/image.png"
+        })
+      )
+      .mockResolvedValueOnce(
+        new Response(Uint8Array.from([137, 80, 78, 71]), {
+          status: 200,
+          headers: {
+            "Content-Type": "image/png"
+          }
+        })
+      );
+
+    const listener = createRobotStreamListener({
+      client: {
+        socketCallBackResponse
+      },
+      assistant,
+      replier,
+      credentials: {
+        clientId: "ding-app-key",
+        clientSecret: "ding-app-secret"
+      }
+    });
+
+    await listener({
+      headers: createStreamHeaders("msg-rich-text"),
+      data: JSON.stringify({
+        sessionWebhook: "https://session.example.com",
+        conversationId: "conv-1",
+        senderStaffId: "user-1",
+        senderNick: "谢敏",
+        robotCode: "ding-bot-code",
+        msgtype: "richText",
+        content: {
+          richText: [
+            {
+              type: "picture",
+              downloadCode: "download-code-1"
+            },
+            {
+              text: "\n"
+            },
+            {
+              text: "这个里面是什么"
+            }
+          ]
+        }
+      })
+    });
+
+    expect(fetchMock).toHaveBeenNthCalledWith(
+      1,
+      "https://api.dingtalk.com/v1.0/oauth2/accessToken",
+      expect.objectContaining({
+        method: "POST"
+      })
+    );
+    expect(fetchMock).toHaveBeenNthCalledWith(
+      2,
+      "https://api.dingtalk.com/v1.0/robot/messageFiles/download",
+      expect.objectContaining({
+        method: "POST",
+        body: JSON.stringify({
+          downloadCode: "download-code-1",
+          robotCode: "ding-bot-code"
+        })
+      })
+    );
+    expect(assistant.reply).toHaveBeenCalledWith({
+      query: "这个里面是什么",
+      sessionId: "conv-1",
+      userId: "user-1",
+      imageUrl: "data:image/png;base64,iVBORw=="
+    });
+    expect(replier.replyMarkdown).toHaveBeenCalledWith(
+      "https://session.example.com",
+      "这是报销凭证截图。"
+    );
+    expect(socketCallBackResponse).toHaveBeenCalledWith(
+      "msg-rich-text",
+      "SUCCESS"
+    );
+  });
+
+  it("uses the default image prompt when a richText message only contains a picture", async () => {
+    const socketCallBackResponse = vi.fn();
+    const assistant = {
+      reply: vi.fn(async () => "这是一张截图。")
+    };
+    const replier = {
+      replyMarkdown: vi.fn(async () => undefined)
+    };
+
+    vi.spyOn(globalThis, "fetch")
+      .mockResolvedValueOnce(
+        Response.json({
+          accessToken: "token-1",
+          expireIn: 7200
+        })
+      )
+      .mockResolvedValueOnce(
+        Response.json({
+          downloadUrl: "https://cdn.example.com/image.png"
+        })
+      )
+      .mockResolvedValueOnce(
+        new Response(Uint8Array.from([137, 80, 78, 71]), {
+          status: 200,
+          headers: {
+            "Content-Type": "image/png"
+          }
+        })
+      );
+
+    const listener = createRobotStreamListener({
+      client: {
+        socketCallBackResponse
+      },
+      assistant,
+      replier,
+      credentials: {
+        clientId: "ding-app-key",
+        clientSecret: "ding-app-secret"
+      }
+    });
+
+    await listener({
+      headers: createStreamHeaders("msg-rich-picture-only"),
+      data: JSON.stringify({
+        sessionWebhook: "https://session.example.com",
+        conversationId: "conv-2",
+        senderStaffId: "user-2",
+        robotCode: "ding-bot-code",
+        msgtype: "richText",
+        content: {
+          richText: [
+            {
+              type: "picture",
+              downloadCode: "download-code-2"
+            }
+          ]
+        }
+      })
+    });
+
+    expect(assistant.reply).toHaveBeenCalledWith({
+      query: "请识别这张图片内容",
+      sessionId: "conv-2",
+      userId: "user-2",
+      imageUrl: "data:image/png;base64,iVBORw=="
+    });
+    expect(socketCallBackResponse).toHaveBeenCalledWith(
+      "msg-rich-picture-only",
+      "SUCCESS"
+    );
+  });
+
   it("acks later when the assistant processing throws", async () => {
     const socketCallBackResponse = vi.fn();
     const assistant = {
@@ -445,7 +645,7 @@ describe("createDingTalkStreamClient", () => {
       "https://session.example.com",
       expect.objectContaining({
         method: "POST",
-        body: expect.stringContaining("年假天数按司龄计算")
+        body: expect.stringContaining("满 1 年不满 10 年为 5 天")
       })
     );
   });

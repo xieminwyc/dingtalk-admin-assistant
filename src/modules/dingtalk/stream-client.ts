@@ -48,11 +48,57 @@ type StreamRobotMessage = {
   text?: {
     content?: string;
   };
+  content?: {
+    downloadCode?: string;
+    richText?: Array<{
+      type?: string;
+      text?: string;
+      downloadCode?: string;
+      pictureDownloadCode?: string;
+    }>;
+  };
   // senderStaffId 是钉钉企业内的 userId，用于懒加载用户信息和 OA 代发起。
   // senderNick 是消息 payload 里的昵称，API 拉取失败时作为兜底。
   senderStaffId?: string;
   senderNick?: string;
 };
+
+function extractRichTextText(
+  richText: Array<{
+    text?: string;
+  }> = [],
+) {
+  const text = richText
+    .map((item) => (typeof item.text === "string" ? item.text : ""))
+    .join("")
+    .trim();
+
+  return text.length > 0 ? text : undefined;
+}
+
+function extractRichTextPictureDownloadCode(
+  richText: Array<{
+    type?: string;
+    downloadCode?: string;
+    pictureDownloadCode?: string;
+  }> = [],
+) {
+  const picture = richText.find(
+    (item) =>
+      item.type === "picture" &&
+      (typeof item.downloadCode === "string" ||
+        typeof item.pictureDownloadCode === "string"),
+  );
+
+  if (!picture) {
+    return undefined;
+  }
+
+  const downloadCode = picture.downloadCode ?? picture.pictureDownloadCode;
+  return typeof downloadCode === "string" && downloadCode.trim().length > 0
+    ? downloadCode
+    : undefined;
+}
 
 function stripImagePlaceholders(text: string): string {
   return text.replace(/\{\{([^}]+)\}\}/g, "$1");
@@ -145,6 +191,54 @@ async function getAppAccessToken(input: {
   }
 
   return accessToken;
+}
+
+export async function downloadDingTalkImageAsBase64(input: {
+  fetchImpl: typeof fetch;
+  clientId: string;
+  clientSecret: string;
+  downloadCode: string;
+  robotCode: string;
+}) {
+  const accessToken = await getAppAccessToken({
+    fetchImpl: input.fetchImpl,
+    clientId: input.clientId,
+    clientSecret: input.clientSecret,
+  });
+
+  const response = await input.fetchImpl(
+    "https://api.dingtalk.com/v1.0/robot/messageFiles/download",
+    {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        "x-acs-dingtalk-access-token": accessToken,
+      },
+      body: JSON.stringify({
+        downloadCode: input.downloadCode,
+        robotCode: input.robotCode,
+      }),
+    },
+  );
+
+  if (!response.ok) {
+    throw new Error(`Failed to get image download URL: ${response.status}`);
+  }
+
+  const data = (await response.json()) as { downloadUrl?: string };
+  if (!data.downloadUrl) {
+    throw new Error("Missing downloadUrl in DingTalk response");
+  }
+
+  const imgRes = await input.fetchImpl(data.downloadUrl);
+  if (!imgRes.ok) {
+    throw new Error(`Failed to download image from CDN: ${imgRes.status}`);
+  }
+
+  const buffer = await imgRes.arrayBuffer();
+  const base64 = Buffer.from(buffer).toString("base64");
+  const contentType = imgRes.headers.get("content-type") || "image/jpeg";
+  return `data:${contentType};base64,${base64}`;
 }
 
 async function uploadImageMedia(input: {
@@ -297,11 +391,10 @@ export function createSessionWebhookReplier(
 export function createRobotStreamListener(input: {
   client: SocketAckPort;
   assistant: AssistantPort;
-  replier?: StreamReplyPort; // 可选回调：每次收到合法消息时，通知外层记录发送者信息（懒加载用户数据）。
+  replier?: StreamReplyPort;
   onSender?: (userId: string, nick?: string) => void;
+  credentials?: { clientId?: string; clientSecret?: string };
 }) {
-  // 这里把“钉钉事件监听”与“业务回复逻辑”拆开：
-  // Stream SDK 负责长连接收消息，handler 负责解析消息并组织回复。
   const handler = createDingTalkStreamHandler({
     assistant: input.assistant,
     replier: input.replier ?? createSessionWebhookReplier(),
@@ -311,10 +404,52 @@ export function createRobotStreamListener(input: {
     event: Pick<DWClientDownStream, "data" | "headers">,
   ) {
     try {
-      // event.data 是字符串，需要先反序列化成业务更容易处理的对象。
-      const message = JSON.parse(event.data) as StreamRobotMessage;
+      const message = JSON.parse(event.data) as StreamRobotMessage & {
+        msgtype?: string;
+        robotCode?: string;
+        imageUrl?: string;
+      };
 
-      // 触发发送者的懒加载（fire-and-forget，不阻塞消息回复）。
+      const richText = Array.isArray(message.content?.richText)
+        ? message.content.richText
+        : [];
+      const richTextText = extractRichTextText(richText);
+
+      if (!message.text?.content && richTextText) {
+        message.text = {
+          content: richTextText,
+        };
+      }
+
+      const imageDownloadCode =
+        message.msgtype === "picture"
+          ? message.content?.downloadCode
+          : message.msgtype === "richText"
+            ? extractRichTextPictureDownloadCode(richText)
+            : undefined;
+
+      if (
+        imageDownloadCode &&
+        message.robotCode &&
+        input.credentials?.clientId &&
+        input.credentials?.clientSecret
+      ) {
+        try {
+          message.imageUrl = await downloadDingTalkImageAsBase64({
+            fetchImpl: fetch,
+            clientId: input.credentials.clientId,
+            clientSecret: input.credentials.clientSecret,
+            downloadCode: imageDownloadCode,
+            robotCode: message.robotCode,
+          });
+          if (!message.text?.content?.trim()) {
+            message.text = { content: "[图片消息]" };
+          }
+        } catch (err) {
+          console.error("[stream] failed to download image from dingtalk:", err);
+        }
+      }
+
       if (message.senderStaffId && input.onSender) {
         input.onSender(message.senderStaffId, message.senderNick);
       }
@@ -344,6 +479,7 @@ export function createRobotStreamListener(input: {
         message: result.reason,
       });
     } catch (error) {
+      console.error("[stream] error handling message:", error);
       // 返回 LATER 表示“这次没处理成功，可以稍后重试”。
       // 这样既能保留失败原因，也能让上游按协议决定是否重投。
       input.client.socketCallBackResponse(event.headers.messageId, {
@@ -389,6 +525,10 @@ export function createDingTalkStreamClient(input: {
         clientSecret: input.clientSecret,
       }),
       onSender: input.onSender,
+      credentials: {
+        clientId: input.clientId,
+        clientSecret: input.clientSecret,
+      },
     }),
   );
 

@@ -110,4 +110,92 @@ describe("resolveDingTalkSenderIdentity", () => {
     expect(win.location.href).toBe("https://example.com/");
     expect(result.source).toBe("unavailable");
   });
+
+  it("reuses a cached user id when query and oauth2 code are both absent", async () => {
+    const now = 1_700_000_000_000;
+    const dateNowSpy = vi.spyOn(Date, "now").mockReturnValue(now);
+    const win = {
+      location: {
+        search: "",
+        href: "https://example.com/",
+        origin: "https://example.com",
+        pathname: "/",
+      },
+      navigator: { userAgent: "Mozilla/5.0" },
+      sessionStorage: {
+        getItem: vi.fn().mockReturnValue(null),
+        setItem: vi.fn(),
+      },
+      localStorage: {
+        getItem: vi.fn().mockReturnValue(
+          JSON.stringify({
+            userId: "0215084121561138029",
+            timestamp: now - 60_000,
+          }),
+        ),
+        setItem: vi.fn(),
+        removeItem: vi.fn(),
+      },
+    } as unknown as Window;
+
+    const result = await resolveDingTalkSenderIdentity(win, {
+      clientId: "ding-client-id",
+      resolveUserIdFromAuthCode: vi.fn(),
+    });
+
+    expect(result).toEqual(
+      expect.objectContaining({
+        senderStaffId: "0215084121561138029",
+        source: "cache",
+        diagnostics: expect.objectContaining({
+          authCodeResolved: true,
+        }),
+      }),
+    );
+    expect(win.localStorage?.removeItem).not.toHaveBeenCalled();
+    dateNowSpy.mockRestore();
+  });
+
+  it("drops an expired cached user id before deciding to redirect", async () => {
+    const now = 1_700_000_000_000;
+    const dateNowSpy = vi.spyOn(Date, "now").mockReturnValue(now);
+    const win = {
+      location: {
+        search: "",
+        href: "https://example.com/",
+        origin: "https://example.com",
+        pathname: "/",
+      },
+      navigator: { userAgent: "DingTalk/7.6.10" },
+      sessionStorage: {
+        getItem: vi.fn().mockReturnValue(null),
+        setItem: vi.fn(),
+      },
+      localStorage: {
+        getItem: vi.fn().mockReturnValue(
+          JSON.stringify({
+            userId: "0215084121561138029",
+            timestamp: now - 24 * 60 * 60 * 1000 - 1,
+          }),
+        ),
+        setItem: vi.fn(),
+        removeItem: vi.fn(),
+      },
+    } as unknown as Window;
+
+    const result = await resolveDingTalkSenderIdentity(win, {
+      clientId: "ding-client-id",
+      resolveUserIdFromAuthCode: vi.fn(),
+    });
+
+    expect(win.localStorage?.removeItem).toHaveBeenCalledWith(
+      "dt-cached-user-id",
+    );
+    expect(win.sessionStorage?.setItem).toHaveBeenCalledWith(
+      "dt-oauth2-redirect-attempted",
+      "1",
+    );
+    expect(result.source).toBe("unavailable");
+    dateNowSpy.mockRestore();
+  });
 });

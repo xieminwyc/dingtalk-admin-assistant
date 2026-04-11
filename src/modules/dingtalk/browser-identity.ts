@@ -1,8 +1,10 @@
 const OAUTH2_REDIRECT_ATTEMPTED_KEY = "dt-oauth2-redirect-attempted";
+const CACHED_USER_ID_KEY = "dt-cached-user-id";
+const CACHE_TTL_MS = 24 * 60 * 60 * 1000; // 24 hours
 
 export type ResolvedDingTalkSenderIdentity = {
   senderStaffId?: string;
-  source: "query" | "oauth2-redirect" | "unavailable";
+  source: "query" | "oauth2-redirect" | "cache" | "unavailable";
   diagnostics?: {
     clientIdProvided: boolean;
     queryHasSenderStaffId: boolean;
@@ -93,6 +95,15 @@ export async function resolveDingTalkSenderIdentity(
 
   // 1. Explicit staff ID in query string (injected by Stream webhook).
   if (senderStaffIdFromQuery) {
+    // Cache the ID for future use
+    try {
+      win.localStorage?.setItem(CACHED_USER_ID_KEY, JSON.stringify({
+        userId: senderStaffIdFromQuery,
+        timestamp: Date.now(),
+      }));
+    } catch {
+      // Ignore localStorage errors
+    }
     return {
       senderStaffId: senderStaffIdFromQuery,
       source: "query",
@@ -115,13 +126,42 @@ export async function resolveDingTalkSenderIdentity(
 
     if (senderStaffId) {
       diagnostics.authCodeResolved = true;
-      win.sessionStorage?.removeItem(OAUTH2_REDIRECT_ATTEMPTED_KEY);
+      // Clear redirect guard and cache the user ID
+      try {
+        win.sessionStorage?.removeItem(OAUTH2_REDIRECT_ATTEMPTED_KEY);
+        win.localStorage?.setItem(CACHED_USER_ID_KEY, JSON.stringify({
+          userId: senderStaffId,
+          timestamp: Date.now(),
+        }));
+      } catch {
+        // Ignore storage errors
+      }
       return {
         senderStaffId,
         source: "oauth2-redirect",
         diagnostics,
       };
     }
+  }
+
+  // 2.5. Check cached user ID from previous successful auth
+  try {
+    const cached = win.localStorage?.getItem(CACHED_USER_ID_KEY);
+    if (cached) {
+      const { userId, timestamp } = JSON.parse(cached) as { userId: string; timestamp: number };
+      const age = Date.now() - timestamp;
+      if (userId && age < CACHE_TTL_MS) {
+        return {
+          senderStaffId: userId,
+          source: "cache",
+          diagnostics: { ...diagnostics, authCodeResolved: true },
+        };
+      }
+      // Cache expired, remove it
+      win.localStorage?.removeItem(CACHED_USER_ID_KEY);
+    }
+  } catch {
+    // Ignore localStorage errors
   }
 
   // 3. Initiate OAuth2 redirect to get a proper authorization code.
